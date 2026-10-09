@@ -25,3 +25,6 @@ replay_pid*
 
 # Personal project and workflow notes
 .notes
+
+# Microsoft Office lock files
+~$*
