@@ -28,3 +28,4 @@ replay_pid*
 
 # Microsoft Office lock files
 ~$*
+.DS_Store
