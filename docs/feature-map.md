@@ -8,7 +8,7 @@ Status: Not started, In progress, Done, Changed (see changes-from-stage1.md), Dr
 |---|---|---|---|---|---|---|---|---|
 | F01 | Scenario Setup | Hybrid | Not started | StoryController, StoryAgent, Scenario | | | | |
 | F02 | Lore Entry Management | Deterministic | In progress (model done) | StoryController, LoreBook, LoreEntry | LoreBook.add/update/remove/search/getPinned/find, LoreEntry.matches/copy, tag validation | | | |
-| F03 | Character Management | Deterministic | Not started | StoryController, StorySession, Character, Relationship | | | | |
+| F03 | Character Management | Deterministic | In progress (model done) | StoryController, StorySession, Character, Relationship | StorySession.addCharacter/updateCharacter/removeCharacter/addRelationship/findCharacter, Character.addRelationship/removeRelationship/describe | | | |
 | F04 | Story Turn | Hybrid | Not started | SubmitTurnCommand, StoryAgent, ToolRegistry, InputModeStrategy | | | | |
 | F05 | Pivotal Events | Hybrid | Not started | StoryAgent, PlotPlanner, Plot, PivotalEvent | | | | |
 | F06 | Plot Steering | AI | Not started | PlotPlanner, UpdatePlotTool, Plot | | | | |
