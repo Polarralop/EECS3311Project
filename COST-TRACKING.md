@@ -17,6 +17,7 @@ Costs are API-equivalent: what the tokens would cost at Anthropic's published pe
 |---|---|---|---|---|---|---|
 | 2026-10-20 | Claude Code (cloud) | Claude Opus 5.5 | Project scaffolding: Maven build, package and class skeletons, AGENTS.md, docs | ~150K context, ~1.5M input incl. cache reads, ~30K output | ~$1.50 | Session token counter; about 25 model calls re-reading a cached context averaging ~60K tokens |
 | 2026-10-20 | Claude Code (cloud) | Claude Opus 5.5 | Stage 2 report scaffold (Stage2_Report.docx) and AGENTS.md report rules | ~90K context, ~1.2M input incl. cache reads, ~25K output | ~$1.00 | Session token counter; about 25 model calls re-reading a cached context averaging ~50K tokens |
+| 2026-10-20 | Claude Code (cloud) | Claude Opus 5.5 | Week 1 implementation: model classes, F02 lore, F03 characters, F11 JSON save/load, ClaudeAdapter with tool use, StoryController, CLI and GUI tabs, 91 tests, docs and Stage 2 report | ~170K context, ~8.9M input incl. cache reads, ~90K output | ~$4.50 | Session token counter; about 85 model calls re-reading a cached context that grew from ~40K to ~170K (cache reads $0.20/1M, cache writes, output $20/1M). No subagents were used. |
 
 ## App usage (Claude Sonnet 5.5 during development)
 
