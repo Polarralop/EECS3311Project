@@ -43,6 +43,7 @@ TODO: a short walk-through (create a story, take a few turns, approve a lore pro
 ## Project documents
 
 - `Stage1_Report.docx` and `figures/`: the Stage 1 design
+- `Stage2_Report.docx`: the Stage 2 implementation report, filled in as features land
 - [AGENTS.md](AGENTS.md): how to work in this repo, including commit rules
 - [docs/feature-map.md](docs/feature-map.md): features F01 to F12 and their status
 - [docs/changes-from-stage1.md](docs/changes-from-stage1.md): changes from the Stage 1 design

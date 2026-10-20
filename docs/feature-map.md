@@ -1,6 +1,6 @@
 # Feature map
 
-Working record for section 2 (feature-to-implementation mapping) and section 7 (demonstration index) of the Stage 2 report. Update a row in the same commit as the code it describes.
+Working record for sections 1.2, 2 (feature-to-implementation mapping), 3 (patterns) and 7 (demonstration index) of `Stage2_Report.docx`. Update a row in the same commit as the code it describes.
 
 Status: Not started, In progress, Done, Changed (see changes-from-stage1.md), Dropped (reason required).
 
