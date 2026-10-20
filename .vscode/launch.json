@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Storyteller GUI",
+      "request": "launch",
+      "mainClass": "ca.yorku.storyteller.ui.StoryGUI",
+      "projectName": "storyteller",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "type": "java",
+      "name": "Storyteller CLI",
+      "request": "launch",
+      "mainClass": "ca.yorku.storyteller.ui.StoryCLI",
+      "projectName": "storyteller",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
