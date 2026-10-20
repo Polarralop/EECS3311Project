@@ -1,0 +1,1 @@
+TODO: prompt text for the plot-planner step. Keep it in sync with docs/ai-tool-log.md if it was written with an AI tool.

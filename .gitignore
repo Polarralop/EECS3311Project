@@ -29,3 +29,23 @@ replay_pid*
 # Microsoft Office lock files
 ~$*
 .DS_Store
+
+# Secrets: never commit API keys
+.env
+.env.*
+!.env.example
+config.local.json
+
+# Build output
+target/
+
+# Local story saves (sample data lives in samples/)
+saves/
+
+# Editors (shared VS Code settings are committed; personal state is not)
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.iml
