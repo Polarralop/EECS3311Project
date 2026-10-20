@@ -50,3 +50,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC01, UC04 to UC08; `LLMRequest`, `LLMResponse`, `ClaudeAdapter`, `FakeLLMClient`, new `LLMMessage`, `LLMToolCall`, `LLMToolResult`, `LLMToolSpec`, `LLMException`; Adapter.
 - Diagram to update: `figures/class-diagram/08-llm.png`.
 - Commit(s): feat(llm): send requests through ClaudeAdapter with tool-use support
+
+## Controller: errors travel as exceptions, and extra management methods
+- Original (Stage 1): on invalid input the controller "calls showError(message)" on the front end; `saveCharacter(character)` covers add and edit; the controller lists only the methods named in the sequence diagrams.
+- Implemented: controller methods throw `IllegalArgumentException` / `IllegalStateException` (or `UncheckedIOException` for save files) with a readable message and change nothing; the front end catches it and shows it (`StoryCLI.printError`, `StoryGUI.showError`). Validation rules live in the model classes, so every caller gets them. `saveCharacter(originalName, character)` takes the name being edited (null for a new character) so a rename can be told apart from a new character. Added: `addObserver`, `newSession`, `getLoreEntry`, `removeLoreEntry`, `getCharacter`, `listCharacters`, `removeCharacter`, `addRelationship`, `removeRelationship`, `listSessions`, `canUndo`. Until F09 lands, `loadSession` returns a short deterministic recap (counts of lore, characters and turns) instead of `StoryAgent.recap(session)`.
+- What changed and why: the controller does not hold a reference to a particular front end (two can be open), so returning the error to the caller is simpler than calling back into one view. Edit and remove were part of UC02 and UC03 but had no controller methods.
+- How the user need is still met: the user sees the same error messages and nothing changes on an error.
+- Affected use cases / classes / methods / patterns: UC02, UC03, UC07; `StoryController`, `StoryCLI`; MVC.
+- Diagram to update: `figures/class-diagram/03-controller.png`; SD03 and SD09 show `showError` called by the controller.
+- Commit(s): feat(controller): expose lore, characters and save/load in StoryCLI

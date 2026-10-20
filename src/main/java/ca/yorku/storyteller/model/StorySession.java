@@ -299,8 +299,9 @@ public class StorySession {
         if (r.getTargetName().equalsIgnoreCase(from.getName())) {
             throw new IllegalArgumentException(from.getName() + " cannot have a relationship with themself.");
         }
-        if (findCharacter(r.getTargetName()).isEmpty()) {
-            throw new IllegalArgumentException("There is no character named " + r.getTargetName() + " to relate to.");
-        }
+        Character target = findCharacter(r.getTargetName()).orElseThrow(() ->
+                new IllegalArgumentException("There is no character named " + r.getTargetName() + " to relate to."));
+        // Store the name as the character spells it, whatever case the user typed.
+        r.setTargetName(target.getName());
     }
 }
