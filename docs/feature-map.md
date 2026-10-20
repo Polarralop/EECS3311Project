@@ -7,7 +7,7 @@ Status: Not started, In progress, Done, Changed (see changes-from-stage1.md), Dr
 | ID | Feature | Type | Status | Main classes | Key methods built | GUI | CLI | Video / timestamp |
 |---|---|---|---|---|---|---|---|---|
 | F01 | Scenario Setup | Hybrid | Not started | StoryController, StoryAgent, Scenario | | | | |
-| F02 | Lore Entry Management | Deterministic | Not started | StoryController, LoreBook, LoreEntry | | | | |
+| F02 | Lore Entry Management | Deterministic | In progress (model done) | StoryController, LoreBook, LoreEntry | LoreBook.add/update/remove/search/getPinned/find, LoreEntry.matches/copy, tag validation | | | |
 | F03 | Character Management | Deterministic | Not started | StoryController, StorySession, Character, Relationship | | | | |
 | F04 | Story Turn | Hybrid | Not started | SubmitTurnCommand, StoryAgent, ToolRegistry, InputModeStrategy | | | | |
 | F05 | Pivotal Events | Hybrid | Not started | StoryAgent, PlotPlanner, Plot, PivotalEvent | | | | |
