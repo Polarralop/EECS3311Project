@@ -1,0 +1,60 @@
+{
+  "id" : "sample-ashfall",
+  "scenario" : null,
+  "plot" : null,
+  "loreBook" : {
+    "entries" : [ {
+      "id" : "L1",
+      "title" : "Ashfall",
+      "content" : "A mining city on the flank of a sleeping volcano. Grey ash falls most mornings.",
+      "tags" : [ "place", "city" ],
+      "pinned" : true
+    }, {
+      "id" : "L2",
+      "title" : "The Ash Bell",
+      "content" : "A bronze bell in the old square. By law it is rung only when the mountain stirs.",
+      "tags" : [ "landmark" ],
+      "pinned" : true
+    }, {
+      "id" : "L3",
+      "title" : "The Ember Guild",
+      "content" : "The smiths' guild. It keeps the city's forges lit and quietly runs the council.",
+      "tags" : [ "faction" ],
+      "pinned" : false
+    } ],
+    "nextNumber" : 4
+  },
+  "characters" : [ {
+    "name" : "Mira",
+    "description" : "Apprentice smith at the Ember Guild, nineteen, good with locks.",
+    "traits" : [ "stubborn", "curious" ],
+    "relationships" : [ {
+      "targetName" : "Tomas",
+      "type" : "sister",
+      "notes" : "she covers for his late shifts"
+    }, {
+      "targetName" : "Guildmaster Orrin",
+      "type" : "apprentice",
+      "notes" : "does not trust him"
+    } ]
+  }, {
+    "name" : "Tomas",
+    "description" : "Mira's older brother, a guard on the night watch.",
+    "traits" : [ "loyal", "tired" ],
+    "relationships" : [ {
+      "targetName" : "Mira",
+      "type" : "brother",
+      "notes" : "protective"
+    } ]
+  }, {
+    "name" : "Guildmaster Orrin",
+    "description" : "Head of the Ember Guild.",
+    "traits" : [ "patient", "secretive" ],
+    "relationships" : [ ]
+  } ],
+  "turns" : [ ],
+  "proposals" : [ ],
+  "summary" : "",
+  "summarizedUpTo" : 0,
+  "nextProposalNumber" : 1
+}

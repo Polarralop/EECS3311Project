@@ -16,7 +16,7 @@ Status: Not started, In progress, Done, Changed (see changes-from-stage1.md), Dr
 | F08 | Consistency Check | Hybrid | Not started | ConsistencyChecker, LoreBook | | | | |
 | F09 | Story Memory Summarization | AI | Not started | MemoryManager, StoryAgent | | | | |
 | F10 | Undo / Retry / Edit Turn | Hybrid | Not started | CommandHistory, SubmitTurnCommand, EditTurnCommand | | | | |
-| F11 | Save and Load Session | Deterministic | Not started | SessionRepository, JsonSessionRepository | | | | |
+| F11 | Save and Load Session | Deterministic | In progress (persistence done) | SessionRepository, JsonSessionRepository | JsonSessionRepository.save (atomic temp-file write), load (missing / damaged / id mismatch errors), listSessions (newest first) | | | |
 | F12 | Ending Generation | AI | Not started | StoryAgent, PlotPlanner | | | | |
 
 F06 and F09 were flagged in Stage 1 as possibly not distinct features. Make their behaviour visible in the app and the video.

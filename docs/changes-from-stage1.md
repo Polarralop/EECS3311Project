@@ -32,3 +32,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04, UC05, UC06; `StorySession`, `Plot`, `LoreProposal`; Observer (subject gains `detach`).
 - Diagram to update: `figures/class-diagram/04-model-story-and-lore.png`, `05-model-characters-and-events.png`.
 - Commit(s): feat(model): notify StoryObserver on session changes
+
+## F11: Save errors are exceptions from the repository
+- Original (Stage 1): `SessionRepository.save/load/listSessions` with no error type; "a missing or damaged file produces an error message".
+- Implemented: `load` throws `IllegalArgumentException` for a missing save and `UncheckedIOException` for an unreadable or damaged one (including a file whose stored id does not match its name); `save` throws `UncheckedIOException` and writes through a temporary file so a failed save never leaves a half-written story. Ids are limited to letters, digits, `-` and `_` because they become file names.
+- What changed and why: the design did not say how errors travel; standard unchecked exceptions keep the interface signatures as designed while letting the controller turn them into a message.
+- How the user need is still met: the user still gets an error message and stays where they were.
+- Affected use cases / classes / methods / patterns: UC07; `SessionRepository`, `JsonSessionRepository`.
+- Diagram to update: none (signatures unchanged).
+- Commit(s): feat(persistence): save and load sessions as JSON

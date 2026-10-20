@@ -13,7 +13,7 @@ import java.util.Optional;
  */
 public class LoreBook {
 
-    private final List<LoreEntry> entries = new ArrayList<>();
+    private List<LoreEntry> entries = new ArrayList<>();
     private int nextNumber = 1;
 
     /**
