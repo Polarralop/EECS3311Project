@@ -25,7 +25,7 @@ F06 and F09 were flagged in Stage 1 as possibly not distinct features. Make thei
 
 | Pattern | Participants (Stage 1) | Implemented in | Status |
 |---|---|---|---|
-| Adapter | LLMClient, ClaudeAdapter, Anthropic SDK | | Not started |
+| Adapter | LLMClient, ClaudeAdapter, Anthropic SDK | llm/LLMClient.java (generate), llm/ClaudeAdapter.java (generate, toApiBody, fromApiBody), llm/FakeLLMClient.java (second Target implementation for tests) | Done (adaptee: anthropic-java `client.messages().create`) |
 | Command | StoryCommand, SubmitTurnCommand, EditTurnCommand, CommandHistory | | Not started |
 | Facade | StoryAgent over PlotPlanner, MemoryManager, ConsistencyChecker, ToolRegistry | | Not started |
 | MVC | StorySession (model), StoryGUI/StoryCLI (view), StoryController | | Not started |

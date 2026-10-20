@@ -41,3 +41,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC07; `SessionRepository`, `JsonSessionRepository`.
 - Diagram to update: none (signatures unchanged).
 - Commit(s): feat(persistence): save and load sessions as JSON
+
+## Adapter: structured messages and tool calls in the llm package
+- Original (Stage 1): `LLMRequest(systemPrompt, messages: List<String>, toolSchemas: List<String>)`, `LLMResponse(text, refused)` with `hasToolCalls()`; `ClaudeAdapter.toApiBody(request): String`, `fromApiBody(json: String)` and an external `AnthropicApi.createMessage(jsonBody)`.
+- Implemented: `LLMRequest` holds `List<LLMMessage>` and `List<LLMToolSpec>` plus `maxTokens`; `LLMResponse` adds `toolCalls`, `stopReason`, token usage and the assistant message to append. New value types `LLMMessage`, `LLMToolCall`, `LLMToolResult`, `LLMToolSpec`, and `LLMException` for failures. `toApiBody` builds the SDK's `MessageCreateParams` and `fromApiBody` reads the SDK's `Message`; the adaptee is the anthropic-java SDK (`client.messages().create`). `FakeLLMClient` can also script failures and records requests.
+- What changed and why: a tool-use loop (F04) needs messages with roles, tool calls and tool results, which a list of strings cannot carry. The typed SDK replaces hand-written JSON, so the adapter converts between two object models rather than to and from strings. Each assistant reply keeps the SDK's own copy (opaque to everything but the adapter) so Claude's thinking blocks are sent back unchanged during a tool loop, as the API requires. These types live in `llm` so that package does not depend on `agent.tools`; the agent maps `LLMToolCall` to `ToolCall`.
+- How the user need is still met: the agent still talks to one `LLMClient` interface, and only `ClaudeAdapter` knows about Anthropic.
+- Affected use cases / classes / methods / patterns: UC01, UC04 to UC08; `LLMRequest`, `LLMResponse`, `ClaudeAdapter`, `FakeLLMClient`, new `LLMMessage`, `LLMToolCall`, `LLMToolResult`, `LLMToolSpec`, `LLMException`; Adapter.
+- Diagram to update: `figures/class-diagram/08-llm.png`.
+- Commit(s): feat(llm): send requests through ClaudeAdapter with tool-use support

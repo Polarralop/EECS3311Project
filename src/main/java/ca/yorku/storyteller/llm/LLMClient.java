@@ -5,7 +5,14 @@ package ca.yorku.storyteller.llm;
  *
  * <p>Features: F01 F04-F09 F12.
  * <p>Patterns: Adapter (Target).
- * <p>TODO (Stage 1 design): generate(request).
  */
 public interface LLMClient {
+
+    /**
+     * Sends one request and returns the model's reply. A tool-use loop calls this repeatedly,
+     * appending the reply and the tool results to the request's messages each time.
+     *
+     * @throws LLMException if the call fails
+     */
+    LLMResponse generate(LLMRequest request);
 }
