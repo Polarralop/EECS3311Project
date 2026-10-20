@@ -1,5 +1,6 @@
 package ca.yorku.storyteller.model;
 
+import ca.yorku.storyteller.ui.StoryObserver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -9,13 +10,25 @@ import java.util.Optional;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Model), Observer (Subject).
- * <p>TODO (Stage 1 design): attach(observer), notifyObservers(), addTurn(), addProposal(), approveProposal().
+ *
+ * <p>The session does not notify on every setter: the controller makes all the changes for one user
+ * action and then calls {@link #notifyObservers()} once, so the front ends refresh once per action.
  */
 public class StorySession {
 
     private String id;
+    private Scenario scenario;
+    private Plot plot;
     private LoreBook loreBook = new LoreBook();
     private List<Character> characters = new ArrayList<>();
+    private List<Turn> turns = new ArrayList<>();
+    private List<LoreProposal> proposals = new ArrayList<>();
+    private String summary = "";
+    private int summarizedUpTo;
+    private int nextProposalNumber = 1;
+
+    /** Front ends watching this session. Transient: observers are never saved (F11). */
+    private transient List<StoryObserver> observers = new ArrayList<>();
 
     /** For JSON loading only. */
     private StorySession() {
@@ -34,6 +47,161 @@ public class StorySession {
 
     public LoreBook getLoreBook() {
         return loreBook;
+    }
+
+    // ---- observer (subject side) ----
+
+    /** Registers a front end. Attaching the same observer twice has no effect. */
+    public void attach(StoryObserver observer) {
+        if (!observers().contains(observer)) {
+            observers().add(observer);
+        }
+    }
+
+    public void detach(StoryObserver observer) {
+        observers().remove(observer);
+    }
+
+    /** Tells every attached front end that the session changed. */
+    public void notifyObservers() {
+        for (StoryObserver o : List.copyOf(observers())) {
+            o.onStoryChanged(this);
+        }
+    }
+
+    /** A session read from JSON has no observer list yet, because the field is transient. */
+    private List<StoryObserver> observers() {
+        if (observers == null) {
+            observers = new ArrayList<>();
+        }
+        return observers;
+    }
+
+    // ---- scenario and plot (F01, F05) ----
+
+    public Scenario getScenario() {
+        return scenario;
+    }
+
+    public void setScenario(Scenario scenario) {
+        this.scenario = scenario;
+    }
+
+    /** The hidden plan. Front ends must not display it. */
+    public Plot getPlot() {
+        return plot;
+    }
+
+    public void setPlot(Plot plot) {
+        this.plot = plot;
+    }
+
+    // ---- turns (F04, F10) ----
+
+    public void addTurn(Turn turn) {
+        turns.add(turn);
+    }
+
+    /**
+     * Removes and returns the latest turn (undo, F10).
+     *
+     * @throws IllegalStateException if there are no turns
+     */
+    public Turn removeLastTurn() {
+        if (turns.isEmpty()) {
+            throw new IllegalStateException("There is no turn to remove.");
+        }
+        Turn removed = turns.remove(turns.size() - 1);
+        if (summarizedUpTo > turns.size()) {
+            summarizedUpTo = turns.size();
+        }
+        return removed;
+    }
+
+    /** The latest turn, or empty before the first turn. */
+    public Optional<Turn> lastTurn() {
+        return turns.isEmpty() ? Optional.empty() : Optional.of(turns.get(turns.size() - 1));
+    }
+
+    public List<Turn> getTurns() {
+        return List.copyOf(turns);
+    }
+
+    /** The number the next turn will get, starting at 1. */
+    public int nextTurnNumber() {
+        return turns.size() + 1;
+    }
+
+    // ---- lore proposals (F07) ----
+
+    /** Stores a pending proposal, giving it the next id ("P1", "P2", ...) if it has none. */
+    public void addProposal(LoreProposal proposal) {
+        if (proposal.getId() == null || proposal.getId().isBlank()) {
+            proposal.setId("P" + nextProposalNumber++);
+        }
+        proposals.add(proposal);
+    }
+
+    /**
+     * Approves a pending proposal and adds its entry to the lore book. If the lore book refuses the
+     * entry (for example a duplicate title), the proposal stays pending.
+     *
+     * @throws IllegalArgumentException if there is no pending proposal with that id, or the lore book refuses it
+     */
+    public LoreEntry approveProposal(String proposalId) {
+        LoreProposal proposal = findPendingProposal(proposalId);
+        LoreEntry entry = proposal.approve();
+        try {
+            loreBook.add(entry);
+        } catch (IllegalArgumentException e) {
+            proposal.reopen();
+            throw e;
+        }
+        return entry;
+    }
+
+    /**
+     * @throws IllegalArgumentException if there is no pending proposal with that id
+     */
+    public void rejectProposal(String proposalId) {
+        findPendingProposal(proposalId).reject();
+    }
+
+    public List<LoreProposal> getPendingProposals() {
+        return proposals.stream().filter(p -> p.getStatus() == ProposalStatus.PENDING).toList();
+    }
+
+    public List<LoreProposal> getProposals() {
+        return List.copyOf(proposals);
+    }
+
+    private LoreProposal findPendingProposal(String proposalId) {
+        return proposals.stream()
+                .filter(p -> p.getId().equalsIgnoreCase(proposalId) && p.getStatus() == ProposalStatus.PENDING)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("There is no pending proposal " + proposalId + "."));
+    }
+
+    // ---- memory summary (F09) ----
+
+    public String getSummary() {
+        return summary;
+    }
+
+    /** Number of turns already folded into the summary. */
+    public int getSummarizedUpTo() {
+        return summarizedUpTo;
+    }
+
+    /**
+     * @throws IllegalArgumentException if upTo is negative or beyond the turns that exist
+     */
+    public void setSummary(String summary, int upTo) {
+        if (upTo < 0 || upTo > turns.size()) {
+            throw new IllegalArgumentException("Cannot summarise up to turn " + upTo + ".");
+        }
+        this.summary = summary == null ? "" : summary;
+        this.summarizedUpTo = upTo;
     }
 
     // ---- characters (F03) ----

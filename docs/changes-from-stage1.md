@@ -23,3 +23,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC03; `Relationship`, `Character`, `StorySession`; MVC model only.
 - Diagram to update: `figures/class-diagram/05-model-characters-and-events.png` (Relationship field, StorySession methods).
 - Commit(s): feat(model): manage characters and relationships in StorySession
+
+## Model: small additions to the Stage 1 model classes
+- Original (Stage 1): `StorySession` has `addTurn`, `removeLastTurn(): Turn`, `lastTurn(): Turn`, `addProposal`, `approveProposal`, `attach`, `notifyObservers`; `Plot.nextPending(): PivotalEvent`.
+- Implemented: `lastTurn()` and `Plot.nextPending()` return `Optional` (there may be no turn or no pending event). `StorySession` also has `detach(observer)`, `rejectProposal(id)`, `getPendingProposals()`, `setSummary(text, upTo)` and `nextTurnNumber()`. Lore and proposal ids are assigned by the owning collection (`L1`, `P1`, ...). `Plot.replacePending` marks the old pending events `DROPPED` rather than deleting them.
+- What changed and why: `Optional` makes the empty case explicit instead of returning null. The extra methods are the obvious counterparts the features need (a rejected proposal in F07, the summary in F09). Keeping dropped events lets the plan's history be saved and inspected in tests.
+- How the user need is still met: no behaviour visible to the user changes.
+- Affected use cases / classes / methods / patterns: UC04, UC05, UC06; `StorySession`, `Plot`, `LoreProposal`; Observer (subject gains `detach`).
+- Diagram to update: `figures/class-diagram/04-model-story-and-lore.png`, `05-model-characters-and-events.png`.
+- Commit(s): feat(model): notify StoryObserver on session changes

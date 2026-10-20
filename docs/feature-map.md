@@ -29,5 +29,5 @@ F06 and F09 were flagged in Stage 1 as possibly not distinct features. Make thei
 | Command | StoryCommand, SubmitTurnCommand, EditTurnCommand, CommandHistory | | Not started |
 | Facade | StoryAgent over PlotPlanner, MemoryManager, ConsistencyChecker, ToolRegistry | | Not started |
 | MVC | StorySession (model), StoryGUI/StoryCLI (view), StoryController | | Not started |
-| Observer | StorySession, StoryObserver, StoryGUI, StoryCLI | | Not started |
+| Observer | StorySession, StoryObserver, StoryGUI, StoryCLI | model/StorySession.java (attach, detach, notifyObservers; observers field is transient), ui/StoryObserver.java (onStoryChanged) | In progress (subject and interface done; front ends next) |
 | Strategy | InputModeStrategy, Do/Say/StoryModeStrategy | | Not started |
