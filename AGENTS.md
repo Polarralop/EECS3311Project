@@ -21,6 +21,8 @@ The design is the Stage 1 report, `Stage1_Report.docx`, with its diagrams in `fi
 
 Do not edit `Stage1_Report.docx`; it is the submitted Stage 1 deliverable. If the code has to differ from the design, that is allowed, but log it (see "Changing the design").
 
+The Stage 2 deliverable is `Stage2_Report.docx`, built from the Stage 1 report's styles and kept current as features land (see "Keeping the Stage 2 report current").
+
 ## Layout
 
 ```
@@ -35,7 +37,8 @@ src/main/java/ca/yorku/storyteller/
 src/main/resources/prompts/   prompt text loaded by the agent
 src/test/java/...             JUnit tests, mirroring the main packages
 samples/                      safe sample sessions (no keys, no personal data)
-docs/                         running logs used to write the Stage 2 report
+docs/                         running logs that feed the Stage 2 report
+Stage2_Report.docx            the Stage 2 report, filled in as features land
 ```
 
 Put a new class in the package its Stage 1 diagram puts it in. Do not create new top-level packages without logging the change.
@@ -105,11 +108,37 @@ Follow these steps for every feature (F01 to F12) or substantial change:
    - `docs/feature-map.md`: update the status, the classes and files, and the key methods actually built.
    - `docs/changes-from-stage1.md`: add an entry if anything differs from Stage 1 (see below).
    - `COST-TRACKING.md` and `docs/ai-tool-log.md`: add a row for the session (see below).
+   - `Stage2_Report.docx`: when a feature or pattern becomes Done or Changed, fill in its section (see below).
 7. **Open a pull request** with a summary, the features it touches (`Refs: F04`), how it was tested, and any change from Stage 1.
 
 ### Changing the design
 
 Any added, replaced, removed or substantially modified feature, class or pattern needs an entry in `docs/changes-from-stage1.md` with: the original ID, what was built, what changed and why, how the user need is still met, and the affected use cases, classes, methods and patterns. Write the entry when you make the change, not at the end. Also note when a UML diagram in `figures/` no longer matches the code, so it can be redrawn for the Stage 2 report.
+
+## Keeping the Stage 2 report current
+
+`Stage2_Report.docx` is the Stage 2 report. Its structure follows the course's Stage 2 requirements and its look follows `Stage1_Report.docx`. Grey italic text in square brackets is a placeholder; replace it with real content in normal (black, non-italic) text. Do not regenerate the file or restyle it, because that would wipe filled-in sections. Edit it in place with python-docx (`pip install python-docx`) or Word, and keep the existing tables and headings.
+
+The markdown logs stay the working record and the report is filled from them:
+
+| Report section | Source | Update it when |
+|---|---|---|
+| 1.2 Implementation Status table | `docs/feature-map.md` | a feature's status changes |
+| 2 Feature-to-Implementation Mapping (one table per feature) | `docs/feature-map.md`, the code | a feature becomes Done, Partial or Changed |
+| 3.1 to 3.6 Design Patterns | Patterns table in `docs/feature-map.md`, the code | a pattern's participants are in the code |
+| 3.7, 3.8 Updated diagrams | `figures/stage2/` | a diagram no longer matches the code |
+| 4 Changes from Stage 1 | `docs/changes-from-stage1.md` | an entry is added there |
+| 5 AI Tools and Collaboration Log | `COST-TRACKING.md`, `docs/ai-tool-log.md` | at the end of each AI session |
+| 6.1 Weekly Commit Summary | `docs/commit-log.md` | commits are logged |
+| 6.2, 6.3 Checks and defects | test runs, bug fixes | a check is run or a defect is fixed |
+| 7 Demonstration Index | the recorded videos | a video is recorded |
+
+Rules:
+
+- Update the report **in the same commit** as the code and log changes it describes, like the other docs. A commit that only touches the report does not count towards the weekly commit minimum.
+- Fill a feature's section only from what the code actually does: real class names, file paths and method signatures. Never describe planned behaviour as built.
+- When a UML diagram is redrawn, save it under `figures/stage2/` with the Stage 1 file name and insert it at its placeholder in section 3.7 or 3.8.
+- Before submission: no placeholder text left, the table of contents updated (right-click, Update Field), the "How to fill this report" paragraph deleted, and a PDF exported next to the .docx if the course asks for one.
 
 ## AI usage and cost tracking
 
