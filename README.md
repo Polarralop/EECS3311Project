@@ -38,7 +38,19 @@ Tests use a fake LLM client and make no paid API calls.
 
 ## Example usage
 
-TODO: a short walk-through (create a story, take a few turns, approve a lore proposal, save and load) once the features run.
+Lore, characters and save/load work today; story turns are next. To try them with the sample story:
+
+```
+mkdir -p saves && cp samples/sample-ashfall.json saves/
+mvn compile exec:java@cli
+> load sample-ashfall
+> lore list
+> lore add            # answer the prompts: title, content, tags, pinned
+> char show Mira
+> save
+```
+
+In the GUI, use Story > Load... and pick `sample-ashfall`, then the Lore and Characters tabs. Type `help` in the CLI for every command.
 
 ## Project documents
 

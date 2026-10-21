@@ -1,0 +1,156 @@
+package ca.yorku.storyteller.ui;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import ca.yorku.storyteller.controller.StoryController;
+import ca.yorku.storyteller.persistence.JsonSessionRepository;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/** Drives {@link StoryCLI} with scripted input, through the real controller and repository. */
+class StoryCLITest {
+
+    @TempDir
+    Path dir;
+
+    private record Run(StoryController controller, String output) {
+    }
+
+    private Run run(String script) {
+        StoryController controller = new StoryController(new JsonSessionRepository(dir));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+        StoryCLI cli = new StoryCLI(controller, new BufferedReader(new StringReader(script)), out);
+        controller.addObserver(cli);
+        cli.run();
+        return new Run(controller, bytes.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void loreCommandsAddSearchPinAndRemove() {
+        Run r = run("""
+                new
+                lore add
+                Ashfall
+                A city under grey snow.
+                place, city
+                n
+                lore add
+                The Ember Guild
+                Smiths of Ashfall.
+                faction
+                y
+                lore search city
+                lore pin L1
+                lore list
+                lore remove L2
+                lore show L2
+                quit
+                """);
+        assertTrue(r.output().contains("Added L1."));
+        assertTrue(r.output().contains("L1 Ashfall  #place #city"));
+        assertTrue(r.output().contains("L1 [pinned] Ashfall"));
+        assertTrue(r.output().contains("Error: There is no lore entry with id L2."));
+        assertEquals(1, r.controller().searchLore("").size());
+    }
+
+    @Test
+    void loreEditKeepsValuesOnEnter() {
+        Run r = run("""
+                new
+                lore add
+                Ashfall
+                A city.
+
+                n
+                lore edit L1
+
+                A city buried in ash.
+
+
+                """);
+        assertEquals("A city buried in ash.", r.controller().getLoreEntry("L1").getContent());
+        assertEquals("Ashfall", r.controller().getLoreEntry("L1").getTitle());
+    }
+
+    @Test
+    void invalidInputPrintsAnErrorAndCarriesOn() {
+        Run r = run("""
+                lore list
+                new
+                lore add
+
+                content
+
+                n
+                frobnicate
+                help
+                """);
+        assertTrue(r.output().contains("Error: Start a new story or load one first."));
+        assertTrue(r.output().contains("Error: A lore entry needs a title."));
+        assertTrue(r.output().contains("Error: Unknown command \"frobnicate\""));
+        assertTrue(r.output().contains("Commands:"));
+    }
+
+    @Test
+    void characterAndRelationshipCommands() {
+        Run r = run("""
+                new
+                char add
+                Mira
+                Apprentice smith.
+                stubborn, curious
+                char add
+                Guildmaster Orrin
+                Head of the guild.
+
+                rel add
+                Mira
+                guildmaster orrin
+                apprentice
+                does not trust him
+                rel add
+                Mira
+                Ghost
+                friend
+
+                char show Mira
+                char edit Guildmaster Orrin
+                Orrin
+
+                patient
+                char list
+                """);
+        assertTrue(r.output().contains("Mira is now apprentice of Guildmaster Orrin (does not trust him)."));
+        assertTrue(r.output().contains("Error: There is no character named Ghost to relate to."));
+        assertTrue(r.output().contains("Traits: stubborn, curious"));
+        assertTrue(r.output().contains("Orrin: Head of the guild."));
+        assertEquals("Orrin", r.controller().getCharacter("Mira").getRelationships().get(0).getTargetName());
+    }
+
+    @Test
+    void saveListAndLoad() {
+        Run first = run("""
+                new
+                char add
+                Mira
+
+
+                save
+                """);
+        String id = first.controller().getSession().getId();
+        Run second = run("sessions\nload " + id + "\nload nope\nchar list\n");
+        assertTrue(second.output().contains(id));
+        assertTrue(second.output().contains("Loaded \"" + id + "\": 0 lore entries, 1 characters, 0 turns."));
+        assertTrue(second.output().contains("Error: There is no saved story called nope."));
+        assertTrue(second.output().contains("Mira"));
+        assertTrue(second.output().contains("[" + id + ": 0 lore, 1 characters, 0 turns]"));
+    }
+}
