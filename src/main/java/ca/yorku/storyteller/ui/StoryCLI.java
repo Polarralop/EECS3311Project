@@ -46,6 +46,7 @@ public class StoryCLI implements StoryObserver {
               turns                   show the story so far
               undo                    undo the last turn (or the last edit)
               retry                   write the last turn again from the same input
+              edit                    replace the last turn's narration with your own text
               lore [list]             list lore entries (pinned first)
               lore search <words>     search lore by title, content and tags
               lore show <id>          show one entry
@@ -109,6 +110,7 @@ public class StoryCLI implements StoryObserver {
                     out.println("Undone.");
                 }
                 case "retry" -> retry();
+                case "edit" -> edit();
                 case "save" -> {
                     controller.saveSession();
                     out.println("Saved as " + controller.getSession().getId() + ".");
@@ -181,6 +183,22 @@ public class StoryCLI implements StoryObserver {
         } catch (LLMException e) {
             printError(e.getMessage() + " The turn stays undone; your input was: " + input);
         }
+    }
+
+    private void edit() {
+        StorySession s = controller.getSession();
+        Turn last = s == null ? null : s.lastTurn().orElse(null);
+        if (last == null) {
+            throw new IllegalStateException("There is no turn to edit.");
+        }
+        out.println("Current narration:\n" + last.getNarration());
+        out.println("Type the new narration. Finish with a line containing only a dot.");
+        StringBuilder text = new StringBuilder();
+        for (String line = askLine(); !line.strip().equals("."); line = askLine()) {
+            text.append(line).append('\n');
+        }
+        controller.editTurn(text.toString());
+        out.println("Turn " + last.getNumber() + " edited. Type \"undo\" to restore the original.");
     }
 
     private void printTurn(Turn t) {
@@ -353,6 +371,17 @@ public class StoryCLI implements StoryObserver {
             throw new IllegalStateException("Input ended.");
         }
         return line.strip();
+    }
+
+    /** Reads one line of multi-line text, keeping it as typed. */
+    private String askLine() {
+        out.print("| ");
+        out.flush();
+        String line = readLine();
+        if (line == null) {
+            throw new IllegalStateException("Input ended.");
+        }
+        return line;
     }
 
     /** Asks for a value, showing the current one (if any); an empty answer keeps it. */

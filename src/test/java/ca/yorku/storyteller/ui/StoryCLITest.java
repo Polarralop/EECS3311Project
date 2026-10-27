@@ -180,6 +180,16 @@ class StoryCLITest {
     }
 
     @Test
+    void editTakesSeveralLinesUntilADot() {
+        withPlan().enqueue(LLMResponse.ofText("The gate opens."));
+        Run r = started("do open the gate\nedit\nThe gate stays shut.\n\nMira waits.\n.\nedit\n.\n");
+        assertTrue(r.output().contains("Current narration:\nThe gate opens."));
+        assertTrue(r.output().contains("Turn 1 edited."));
+        assertTrue(r.output().contains("Error: The narration cannot be empty."));
+        assertEquals("The gate stays shut.\n\nMira waits.", r.controller().getSession().lastTurn().orElseThrow().getNarration());
+    }
+
+    @Test
     void turnsBeforeStartingAreRefused() {
         Run r = run("new\ndo something\n");
         assertTrue(r.output().contains("Error: Start the story first."));

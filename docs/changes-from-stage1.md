@@ -104,3 +104,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04, UC06; `SubmitTurnCommand`, `CommandHistory`, `StoryController`, `StoryCLI`; Command, Strategy.
 - Diagram to update: `figures/class-diagram/03-controller.png`; SD08 (retry undoes edits first).
 - Commit(s): feat(controller): submit turns through SubmitTurnCommand and CommandHistory
+
+## F10: A loaded turn can be edited
+- Original (Stage 1): the Undo, Retry and Edit buttons are available only while `CommandHistory.canUndo()` is true, so none of them work right after a load; `EditTurnCommand(newNarration, oldNarration)`.
+- Implemented: `StoryController.editTurn(newNarration)` works whenever the story has a turn, including right after a load; the edit itself is then in the history and can be undone. Undo and retry still need a turn taken since the story was opened, because the history is not saved. `EditTurnCommand(session, newNarration)` keeps the edited `Turn` and its `oldNarration`.
+- What changed and why: replacing text needs nothing that was lost at load time (no plot copy, no original input), so there is no reason to forbid it, and fixing the last paragraph of a story you just reopened is a common need.
+- How the user need is still met: edit, undo of the edit, and the empty-text and cancel cases behave as in UC06.
+- Affected use cases / classes / methods / patterns: UC06; `EditTurnCommand`, `StoryController`, `StoryCLI`; Command.
+- Diagram to update: `figures/class-diagram/03-controller.png` (EditTurnCommand fields).
+- Commit(s): feat(controller): edit a past turn with EditTurnCommand

@@ -32,7 +32,7 @@ import java.util.Map;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): editTurn(), resolveProposal(), requestEnding().
+ * <p>TODO (Stage 1 design): resolveProposal(), requestEnding().
  */
 public class StoryController {
 
@@ -191,6 +191,21 @@ public class StoryController {
             s.notifyObservers();
         }
         return again.getResult();
+    }
+
+    /**
+     * Replaces the narration of the most recent turn with the user's text, as an undoable command.
+     *
+     * @throws IllegalArgumentException if the text is empty; the narration is unchanged
+     * @throws IllegalStateException if the story has no turns
+     */
+    public void editTurn(String newNarration) {
+        StorySession s = requireStarted();
+        if (newNarration == null || newNarration.isBlank()) {
+            throw new IllegalArgumentException("The narration cannot be empty. Undo the turn instead if you want it gone.");
+        }
+        history.run(new EditTurnCommand(s, newNarration.strip()));
+        s.notifyObservers();
     }
 
     private InputModeStrategy mode(String name) {
