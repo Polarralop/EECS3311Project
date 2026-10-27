@@ -95,3 +95,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC01; `StoryController`, `Scenario`, `StoryAgent`, `PlotPlanner`, `StoryCLI`, `StoryGUI`; Facade, MVC.
 - Diagram to update: `figures/class-diagram/03-controller.png` (constructor, isStarted), `04-model-story-and-lore.png` (readyToStart); SD02 (session reused when empty).
 - Commit(s): feat(agent): plan hidden pivotal events before the story starts
+
+## F04/F10: Turn commands and retry details
+- Original (Stage 1): `SubmitTurnCommand(input, mode, plotBefore, result)` with `execute`, `undo`, `getInput`; `CommandHistory.run/undoLast/canUndo`; `StoryController.retryTurn()` calls `undoLast()`, reads the input and runs a new command.
+- Implemented: `SubmitTurnCommand(session, agent, input, mode)` also has `getMode()` and `getResult()`, and if the agent fails it puts the plot copy back before passing the error on (a tool call may have changed the plot mid-turn), so a failed turn leaves no trace. `CommandHistory` gains `latest(type)` and `peekLast()`. `retryTurn()` finds the latest `SubmitTurnCommand`, undoes any edits made to that turn after it, undoes the turn and runs a new command with the same input and mode; the front ends are notified even when the retry fails, because the turn is gone either way. `StoryController` gains `modeNames()` and `isStarted()`, and turns need a started story (a scenario).
+- What changed and why: Stage 1 assumed the last command is always the turn, but after an edit (F10) the last command is the `EditTurnCommand`; regenerating the turn must discard the edit too. `getMode()` is how retry reuses the same strategy.
+- How the user need is still met: undo removes the turn and restores the events; retry regenerates it from the same input; a failed retry leaves the turn undone and the front end shows the input again.
+- Affected use cases / classes / methods / patterns: UC04, UC06; `SubmitTurnCommand`, `CommandHistory`, `StoryController`, `StoryCLI`; Command, Strategy.
+- Diagram to update: `figures/class-diagram/03-controller.png`; SD08 (retry undoes edits first).
+- Commit(s): feat(controller): submit turns through SubmitTurnCommand and CommandHistory

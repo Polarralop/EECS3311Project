@@ -10,6 +10,9 @@ import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.llm.FakeLLMClient;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.llm.LLMResponse;
+import ca.yorku.storyteller.llm.LLMToolCall;
+import java.util.List;
+import java.util.Map;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -126,6 +129,60 @@ class StoryCLITest {
         llm.enqueueFailure(new LLMException("Could not reach Claude. Check your internet connection."));
         Run r = run("start\n\n\npremise\n\nsetting\n\n\n");
         assertTrue(r.output().contains("Error: Could not reach Claude. Check your internet connection."));
+    }
+
+    /** Queues a one-event plan for the start command; call it before queueing the turns. */
+    private FakeLLMClient withPlan() {
+        return llm.enqueue(LLMResponse.ofText("{\"events\": [\"The letter is stolen.\"]}"));
+    }
+
+    /** Starts a story (the plan must be queued with {@link #withPlan()}), then runs the rest of the script. */
+    private Run started(String script) {
+        return run("start\n\nAshfall\nA courier carries a letter.\n\nA city under snow\n\n\n" + script);
+    }
+
+    @Test
+    void turnsUndoAndRetryFromTheCli() {
+        withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
+                .enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("The guard nods."))
+                .enqueue(LLMResponse.ofText("The guard laughs instead."));
+        Run r = started("""
+                lore add
+                Ashfall
+                A city under grey snow.
+
+                y
+                do open the gate
+                say Good evening, friend
+                retry
+                turns
+                undo
+                undo
+                undo
+                do
+                """);
+        String out = r.output();
+        assertTrue(out.contains("Snow settles on the gate.\n(Lore used: L1 Ashfall)"));
+        assertTrue(out.contains("The guard laughs instead."));
+        assertTrue(out.contains("> Say: Good evening, friend"));
+        assertTrue(out.contains("Error: There is nothing to undo."));
+        assertTrue(out.contains("Error: Usage: do <text>"));
+        assertFalse(out.contains("The letter is stolen"), "the plan is never printed");
+        assertTrue(r.controller().getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void aFailedRetryGivesTheInputBack() {
+        withPlan().enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofRefusal());
+        Run r = started("do climb the wall\nretry\n");
+        assertTrue(r.output().contains("The turn stays undone; your input was: climb the wall"));
+    }
+
+    @Test
+    void turnsBeforeStartingAreRefused() {
+        Run r = run("new\ndo something\n");
+        assertTrue(r.output().contains("Error: Start the story first."));
     }
 
     @Test

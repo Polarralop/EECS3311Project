@@ -10,6 +10,7 @@ import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.Relationship;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
+import ca.yorku.storyteller.model.Turn;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
 import io.github.cdimascio.dotenv.Dotenv;
 import java.io.BufferedReader;
@@ -39,6 +40,12 @@ public class StoryCLI implements StoryObserver {
               save                    save the current story
               load <id>               load a saved story
               sessions                list saved stories
+              do <action>             your character attempts an action
+              say <words>             your character speaks
+              story <text>            write part of the story yourself; the storyteller continues it
+              turns                   show the story so far
+              undo                    undo the last turn (or the last edit)
+              retry                   write the last turn again from the same input
               lore [list]             list lore entries (pinned first)
               lore search <words>     search lore by title, content and tags
               lore show <id>          show one entry
@@ -87,6 +94,7 @@ public class StoryCLI implements StoryObserver {
         String cmd = words[0].toLowerCase(Locale.ROOT);
         String sub = words.length > 1 ? words[1].toLowerCase(Locale.ROOT) : "";
         String rest = argAfterSub(line);
+        String afterCmd = words.length > 1 ? line.strip().substring(words[0].length()).strip() : "";
         try {
             switch (cmd) {
                 case "" -> { }
@@ -94,6 +102,13 @@ public class StoryCLI implements StoryObserver {
                 case "quit", "exit" -> running = false;
                 case "new" -> out.println("Opened " + controller.newSession().getId() + ". Add lore and characters, then type \"start\".");
                 case "start" -> start();
+                case "do", "say", "story" -> turn(afterCmd, cmd);
+                case "turns" -> printTurns();
+                case "undo" -> {
+                    controller.undoTurn();
+                    out.println("Undone.");
+                }
+                case "retry" -> retry();
                 case "save" -> {
                     controller.saveSession();
                     out.println("Saved as " + controller.getSession().getId() + ".");
@@ -145,6 +160,55 @@ public class StoryCLI implements StoryObserver {
         out.println("Preparing the story...");
         controller.startStory(scenario, basis);
         out.println("The story \"" + controller.getSession().getScenario().getTitle() + "\" has begun.");
+    }
+
+    // ---- story turns (F04, F10) ----
+
+    private void turn(String input, String mode) {
+        if (input.isBlank()) {
+            throw new IllegalArgumentException("Usage: " + mode + " <text>");
+        }
+        out.println("The storyteller is writing...");
+        printTurn(controller.submitTurn(input, mode));
+    }
+
+    private void retry() {
+        String input = controller.getSession() == null ? ""
+                : controller.getSession().lastTurn().map(Turn::getUserInput).orElse("");
+        out.println("The storyteller is rewriting the last turn...");
+        try {
+            printTurn(controller.retryTurn());
+        } catch (LLMException e) {
+            printError(e.getMessage() + " The turn stays undone; your input was: " + input);
+        }
+    }
+
+    private void printTurn(Turn t) {
+        out.println();
+        out.println(t.getNarration());
+        if (!t.getUsedLoreIds().isEmpty()) {
+            List<String> used = t.getUsedLoreIds().stream().map(this::loreLabel).toList();
+            out.println("(Lore used: " + String.join(", ", used) + ")");
+        }
+        out.println();
+    }
+
+    /** "L1 Ashfall", or just the id if the entry has since been deleted. */
+    private String loreLabel(String id) {
+        return controller.searchLore("").stream().filter(e -> e.getId().equals(id)).findFirst()
+                .map(e -> e.getId() + " " + e.getTitle()).orElse(id);
+    }
+
+    private void printTurns() {
+        StorySession s = controller.getSession();
+        if (s == null || s.getTurns().isEmpty()) {
+            out.println("No turns yet.");
+            return;
+        }
+        for (Turn t : s.getTurns()) {
+            out.println("> " + t.getModeName() + ": " + t.getUserInput());
+            printTurn(t);
+        }
     }
 
     // ---- lore (F02) ----

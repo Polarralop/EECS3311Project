@@ -1,18 +1,26 @@
 package ca.yorku.storyteller.controller;
 
+import ca.yorku.storyteller.agent.DoModeStrategy;
+import ca.yorku.storyteller.agent.InputModeStrategy;
+import ca.yorku.storyteller.agent.SayModeStrategy;
 import ca.yorku.storyteller.agent.StoryAgent;
+import ca.yorku.storyteller.agent.StoryModeStrategy;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Relationship;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
+import ca.yorku.storyteller.model.Turn;
 import ca.yorku.storyteller.persistence.SessionRepository;
 import ca.yorku.storyteller.ui.StoryObserver;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Single entry point for both front ends. Validates input, creates commands and delegates story work to the agent.
@@ -24,8 +32,7 @@ import java.util.List;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): submitTurn(), undoTurn(), retryTurn(), editTurn(),
- * resolveProposal(), requestEnding().
+ * <p>TODO (Stage 1 design): editTurn(), resolveProposal(), requestEnding().
  */
 public class StoryController {
 
@@ -35,11 +42,21 @@ public class StoryController {
     private final StoryAgent agent;
     private final CommandHistory history = new CommandHistory();
     private final List<StoryObserver> observers = new ArrayList<>();
+    /** The input modes the user can pick, by lower-case name (Strategy: the controller selects one). */
+    private final Map<String, InputModeStrategy> modes = new LinkedHashMap<>();
     private StorySession session;
 
     public StoryController(SessionRepository repository, StoryAgent agent) {
         this.repository = repository;
         this.agent = agent;
+        for (InputModeStrategy m : List.of(new DoModeStrategy(), new SayModeStrategy(), new StoryModeStrategy())) {
+            modes.put(m.getName().toLowerCase(Locale.ROOT), m);
+        }
+    }
+
+    /** The mode names a front end offers: Do, Say, Story. */
+    public List<String> modeNames() {
+        return modes.values().stream().map(InputModeStrategy::getName).toList();
     }
 
     /** Registers a front end; it is attached to the current session and to every later one. */
@@ -114,6 +131,74 @@ public class StoryController {
     /** True once the current story has a scenario and can take turns. */
     public boolean isStarted() {
         return session != null && session.getScenario() != null;
+    }
+
+    // ---- story turns (F04, F10) ----
+
+    /**
+     * Runs one turn as an undoable command: the agent narrates the input in the chosen mode and the
+     * turn is added to the story.
+     *
+     * @throws IllegalArgumentException if the input is empty or the mode is unknown
+     * @throws IllegalStateException if no story has been started
+     * @throws ca.yorku.storyteller.llm.LLMException if Claude declines or the call fails; no turn is added
+     */
+    public Turn submitTurn(String input, String modeName) {
+        StorySession s = requireStarted();
+        if (input == null || input.isBlank()) {
+            throw new IllegalArgumentException("Type something for the turn first.");
+        }
+        SubmitTurnCommand command = new SubmitTurnCommand(s, agent, input, mode(modeName));
+        history.run(command);
+        s.notifyObservers();
+        return command.getResult();
+    }
+
+    /**
+     * Undoes the most recent action: a turn is removed and the pivotal events go back to how they were
+     * before it; an edit gets its original narration back.
+     *
+     * @throws IllegalStateException if there is nothing to undo (for example right after a load)
+     */
+    public void undoTurn() {
+        StorySession s = requireSession();
+        if (!history.canUndo()) {
+            throw new IllegalStateException("There is nothing to undo.");
+        }
+        history.undoLast();
+        s.notifyObservers();
+    }
+
+    /**
+     * Regenerates the most recent turn from the same input and mode. Any edits of that turn are undone
+     * with it. If the new attempt fails, the turn stays undone and the error is passed on, so the front
+     * end can give the user their input back.
+     *
+     * @throws IllegalStateException if there is no turn to retry
+     */
+    public Turn retryTurn() {
+        StorySession s = requireStarted();
+        SubmitTurnCommand last = history.latest(SubmitTurnCommand.class)
+                .orElseThrow(() -> new IllegalStateException("There is no turn to retry."));
+        while (history.peekLast().orElseThrow() != last) {
+            history.undoLast();
+        }
+        history.undoLast();
+        SubmitTurnCommand again = new SubmitTurnCommand(s, agent, last.getInput(), last.getMode());
+        try {
+            history.run(again);
+        } finally {
+            s.notifyObservers();
+        }
+        return again.getResult();
+    }
+
+    private InputModeStrategy mode(String name) {
+        InputModeStrategy m = name == null ? null : modes.get(name.strip().toLowerCase(Locale.ROOT));
+        if (m == null) {
+            throw new IllegalArgumentException("Unknown mode \"" + name + "\". Use " + String.join(", ", modeNames()) + ".");
+        }
+        return m;
     }
 
     // ---- lore (F02) ----
@@ -243,6 +328,14 @@ public class StoryController {
                 ? s.getId() : s.getScenario().getTitle();
         return "Loaded \"" + title + "\": " + s.getLoreBook().size() + " lore entries, "
                 + s.getCharacters().size() + " characters, " + s.getTurns().size() + " turns.";
+    }
+
+    private StorySession requireStarted() {
+        StorySession s = requireSession();
+        if (s.getScenario() == null) {
+            throw new IllegalStateException("Start the story first.");
+        }
+        return s;
     }
 
     private StorySession requireSession() {
