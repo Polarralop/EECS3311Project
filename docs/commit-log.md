@@ -24,6 +24,7 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 | 4 | [c5a57de](https://github.com/Polarralop/EECS3311Project/commit/c5a57de) | feat(agent): draft a scenario from a short prompt | F01 |
 | 5 | [912b3d0](https://github.com/Polarralop/EECS3311Project/commit/912b3d0) | feat(controller): submit turns through SubmitTurnCommand and CommandHistory | F04, F10 (Command) |
 | 6 | [f260c7f](https://github.com/Polarralop/EECS3311Project/commit/f260c7f) | feat(controller): edit a past turn with EditTurnCommand | F10 (Command) |
+| 7 | [d86552d](https://github.com/Polarralop/EECS3311Project/commit/d86552d) | feat(tools): raise lore proposals and resolve them in StoryController | F07 |
 
 ## Period 3: Nov 3 to Nov 9
 

@@ -183,7 +183,9 @@ public class StoryCLI implements StoryObserver {
         if (input.isBlank()) {
             throw new IllegalArgumentException("Usage: " + mode + " <text>");
         }
-        out.println("The storyteller is writing...");
+        if (controller.isStarted()) {
+            out.println("The storyteller is writing...");
+        }
         printTurn(controller.submitTurn(input, mode));
     }
 

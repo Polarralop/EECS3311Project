@@ -1,15 +1,22 @@
 package ca.yorku.storyteller.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
 import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.llm.FakeLLMClient;
+import ca.yorku.storyteller.llm.LLMException;
+import ca.yorku.storyteller.llm.LLMResponse;
+import ca.yorku.storyteller.llm.LLMToolCall;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +60,23 @@ class StoryGUITest {
         @Override
         protected String chooseSession(List<String> ids) {
             return sessionToPick;
+        }
+
+        String narrationToType;
+
+        @Override
+        protected String askNarration(String current) {
+            return narrationToType;
+        }
+
+        @Override
+        protected void openStartForm() {
+        }
+
+        /** Model calls run straight away on the test's thread instead of a SwingWorker. */
+        @Override
+        protected <T> void runInBackground(String busyText, Supplier<T> work, Consumer<T> onSuccess, Runnable onFailure) {
+            completeNow(work, onSuccess, onFailure);
         }
     }
 
@@ -185,5 +209,175 @@ class StoryGUITest {
         assertEquals(1, gui.characterItems.size());
         assertTrue(gui.messages.get(1).startsWith("Loaded"));
         assertTrue(gui.status.getText().contains(id));
+    }
+
+    // ---- story tab, start form and proposals (F01, F04, F05, F07, F10) ----
+
+    private static final String PLAN = "{\"events\": [\"The letter is stolen by the guild.\"]}";
+
+    /** Fills the start form and clicks Start story. */
+    private void startFromTheForm() throws Exception {
+        llm.enqueue(LLMResponse.ofText(PLAN));
+        onEdt(() -> {
+            gui.scenarioPremise.setText("A courier carries a forbidden letter.");
+            gui.scenarioSetting.setText("A city under grey snow");
+            gui.scenarioOpening.setText("Mira waits at the gate.");
+            gui.plotBasis.setText("a betrayal");
+            gui.startButton.doClick();
+        });
+    }
+
+    @Test
+    void turnControlsAreUnavailableUntilTheStoryStarts() throws Exception {
+        onEdt(() -> controller.newSession());
+        assertFalse(gui.send.isEnabled());
+        assertFalse(gui.input.isEnabled());
+        assertFalse(gui.undo.isEnabled());
+        assertTrue(gui.storyTitle.getText().startsWith("Story not started yet"));
+    }
+
+    @Test
+    void theFormDraftsAScenarioAndStartsTheStoryWithoutShowingThePlan() throws Exception {
+        llm.enqueue(LLMResponse.ofText("{\"title\": \"Ashfall\", \"premise\": \"A courier.\", \"tone\": \"grim\", "
+                + "\"setting\": \"A snowy city.\", \"openingSituation\": \"At the gate.\"}"));
+        onEdt(() -> {
+            gui.scenarioIdea.setText("a courier in the snow");
+            gui.generate.doClick();
+        });
+        assertEquals("Ashfall", gui.scenarioTitle.getText());
+        assertEquals("A snowy city.", gui.scenarioSetting.getText());
+
+        llm.enqueue(LLMResponse.ofText(PLAN));
+        onEdt(() -> {
+            gui.scenarioTitle.setText("Ember Road");
+            gui.startButton.doClick();
+        });
+        assertTrue(controller.isStarted());
+        assertEquals("Ember Road", gui.storyTitle.getText());
+        assertEquals("At the gate.", gui.transcript.getText());
+        assertTrue(gui.send.isEnabled());
+        assertEquals("", gui.scenarioTitle.getText(), "the form is cleared after a start");
+        assertFalse(gui.transcript.getText().contains("stolen"));
+        assertFalse(gui.status.getText().contains("stolen"));
+        assertTrue(gui.errors.isEmpty(), gui.errors.toString());
+    }
+
+    @Test
+    void aStartWithoutASettingShowsAnErrorAndStartsNothing() throws Exception {
+        onEdt(() -> {
+            gui.scenarioPremise.setText("A premise.");
+            gui.startButton.doClick();
+        });
+        assertEquals(List.of("A story needs a setting."), gui.errors);
+        assertFalse(controller.isStarted());
+        assertEquals("A premise.", gui.scenarioPremise.getText(), "the form keeps what was typed");
+    }
+
+    @Test
+    void sendShowsTheNarrationAndTheLoreUsed() throws Exception {
+        onEdt(() -> {
+            controller.newSession();
+            controller.saveLoreEntry(new ca.yorku.storyteller.model.LoreEntry(null, "Ashfall", "A city.", List.of(), true));
+        });
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
+                .enqueue(LLMResponse.ofText("Snow settles on the gate."));
+        onEdt(() -> {
+            gui.modeChoice.setSelectedItem("Say");
+            gui.input.setText("Open up!");
+            gui.send.doClick();
+        });
+        assertTrue(gui.transcript.getText().endsWith("> Say: Open up!\n\nSnow settles on the gate."));
+        assertEquals("Ashfall", gui.usedLoreItems.get(0).getTitle());
+        assertEquals("", gui.input.getText());
+        assertTrue(gui.undo.isEnabled() && gui.retry.isEnabled() && gui.edit.isEnabled());
+    }
+
+    @Test
+    void aFailedTurnKeepsTheInputInTheBox() throws Exception {
+        startFromTheForm();
+        llm.enqueueFailure(new LLMException("Could not reach Claude. Check your internet connection."));
+        onEdt(() -> {
+            gui.input.setText("climb the wall");
+            gui.send.doClick();
+        });
+        assertEquals(List.of("Could not reach Claude. Check your internet connection."), gui.errors);
+        assertEquals("climb the wall", gui.input.getText());
+        assertTrue(controller.getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void undoRetryAndEditButtons() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofText("Second."));
+        onEdt(() -> {
+            gui.input.setText("knock");
+            gui.send.doClick();
+            gui.retry.doClick();
+        });
+        assertTrue(gui.transcript.getText().endsWith("Second."));
+
+        gui.narrationToType = "My own ending to the turn.";
+        onEdt(() -> gui.edit.doClick());
+        assertTrue(gui.transcript.getText().endsWith("My own ending to the turn."));
+
+        gui.narrationToType = null;
+        onEdt(() -> gui.edit.doClick());
+        assertTrue(gui.transcript.getText().endsWith("My own ending to the turn."), "cancel changes nothing");
+
+        onEdt(() -> gui.undo.doClick());
+        assertTrue(gui.transcript.getText().endsWith("Second."));
+        onEdt(() -> gui.undo.doClick());
+        assertEquals("Mira waits at the gate.", gui.transcript.getText());
+        assertFalse(gui.undo.isEnabled());
+        assertTrue(gui.errors.isEmpty(), gui.errors.toString());
+    }
+
+    @Test
+    void aFailedRetryPutsTheInputBack() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofRefusal());
+        onEdt(() -> {
+            gui.modeChoice.setSelectedItem("Story");
+            gui.input.setText("The bells rang.");
+            gui.send.doClick();
+            gui.modeChoice.setSelectedItem("Do");
+            gui.retry.doClick();
+        });
+        assertTrue(gui.errors.get(0).contains("declined"));
+        assertEquals("The bells rang.", gui.input.getText());
+        assertEquals("Story", gui.modeChoice.getSelectedItem());
+        assertTrue(controller.getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void proposalsAreListedWithACountAndCanBeApprovedOrRejected() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(
+                        new LLMToolCall("a", "propose_lore", Map.of("title", "The Ember Guild", "content", "Smiths.")),
+                        new LLMToolCall("b", "propose_lore", Map.of("title", "Grey Snow", "content", "It never melts.")))))
+                .enqueue(LLMResponse.ofText("The forges glow."));
+        onEdt(() -> {
+            gui.input.setText("visit the forges");
+            gui.send.doClick();
+        });
+        assertEquals(2, gui.proposalItems.size());
+        assertTrue(gui.status.getText().contains("2 lore proposals waiting"));
+
+        onEdt(() -> {
+            gui.proposalList.setSelectedIndex(0);
+            gui.approve.doClick();
+        });
+        assertEquals("Smiths.", controller.getLoreEntry("L1").getContent());
+        assertEquals(1, gui.proposalItems.size());
+
+        onEdt(() -> {
+            gui.reject.doClick();
+            gui.proposalList.setSelectedIndex(0);
+            gui.reject.doClick();
+        });
+        assertEquals(List.of("Select a proposal first."), gui.errors);
+        assertEquals(0, gui.proposalItems.size());
+        assertEquals(1, controller.searchLore("").size());
     }
 }

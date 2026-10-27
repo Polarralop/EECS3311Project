@@ -1,10 +1,14 @@
 package ca.yorku.storyteller.ui;
 
 import ca.yorku.storyteller.controller.StoryController;
+import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.LoreProposal;
 import ca.yorku.storyteller.model.Relationship;
+import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
+import ca.yorku.storyteller.model.Turn;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -12,16 +16,22 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -37,6 +47,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -46,7 +57,9 @@ import javax.swing.event.DocumentListener;
  * story logic. Every list is re-read from the session in {@link #onStoryChanged}.
  *
  * <p>The panels are built in the constructor and the window only in {@link #open()}, so the panels
- * can be exercised in tests without a display.
+ * can be exercised in tests without a display. Model calls (starting a story, a turn, a retry) run on a
+ * background thread through {@link #runInBackground}, so the window stays responsive while Claude writes.
+ * The hidden pivotal events are never read here.
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (View), Observer (Concrete observer).
@@ -57,6 +70,44 @@ public class StoryGUI implements StoryObserver {
     private final JPanel root = new JPanel(new BorderLayout());
     private final JMenuBar menuBar = new JMenuBar();
     final JLabel status = new JLabel("No story open. Use Story > New or Story > Load.");
+
+    private final JTabbedPane tabs = new JTabbedPane();
+
+    // Story tab (F04, F10)
+    final JLabel storyTitle = new JLabel();
+    final JTextArea transcript = new JTextArea();
+    final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
+    final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
+    final JComboBox<String> modeChoice;
+    final JTextArea input = new JTextArea(3, 40);
+    final JButton send = new JButton("Send");
+    final JButton undo = new JButton("Undo");
+    final JButton retry = new JButton("Retry");
+    final JButton edit = new JButton("Edit");
+
+    // Start-a-story form (F01, F05)
+    final JTextField scenarioIdea = new JTextField();
+    final JButton generate = new JButton("Generate draft");
+    final JTextField scenarioTitle = new JTextField();
+    final JTextArea scenarioPremise = new JTextArea(2, 30);
+    final JTextField scenarioTone = new JTextField();
+    final JTextArea scenarioSetting = new JTextArea(2, 30);
+    final JTextArea scenarioOpening = new JTextArea(2, 30);
+    final JTextArea plotBasis = new JTextArea(2, 30);
+    final JButton startButton = new JButton("Start story");
+    final JPanel startForm;
+    private JDialog startDialog;
+
+    // Lore proposals (F07), in the Lore tab
+    final DefaultListModel<LoreProposal> proposalItems = new DefaultListModel<>();
+    final JList<LoreProposal> proposalList = new JList<>(proposalItems);
+    final JTextArea proposalContent = new JTextArea(3, 30);
+    final JButton approve = new JButton("Approve");
+    final JButton reject = new JButton("Reject");
+    private final JPanel proposalPanel = new JPanel(new BorderLayout(4, 4));
+
+    /** True while a model call runs; the controls that would start another one are disabled. */
+    private boolean busy;
 
     // Lore tab (F02)
     final JTextField loreSearch = new JTextField();
@@ -94,13 +145,16 @@ public class StoryGUI implements StoryObserver {
 
     public StoryGUI(StoryController controller) {
         this.controller = controller;
+        modeChoice = new JComboBox<>(controller.modeNames().toArray(new String[0]));
+        startForm = buildStartForm();
         buildMenu();
-        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Story", buildStoryTab());
         tabs.addTab("Lore", buildLoreTab());
         tabs.addTab("Characters", buildCharacterTab());
         root.add(tabs, BorderLayout.CENTER);
         status.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         root.add(status, BorderLayout.SOUTH);
+        refreshStoryControls();
     }
 
     /** Shows the window. */
@@ -122,6 +176,95 @@ public class StoryGUI implements StoryObserver {
         JOptionPane.showMessageDialog(root, message, "Storyteller", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    /** Asks for the replacement narration in an editable box; null if the user cancels. */
+    protected String askNarration(String current) {
+        JTextArea area = new JTextArea(current, 12, 60);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        int answer = JOptionPane.showConfirmDialog(root, new JScrollPane(area), "Edit the last turn",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        return answer == JOptionPane.OK_OPTION ? area.getText() : null;
+    }
+
+    /** Shows the start-a-story form in its own window. */
+    protected void openStartForm() {
+        if (startDialog == null) {
+            startDialog = new JDialog(SwingUtilities.getWindowAncestor(root), "Start a story");
+            startDialog.setContentPane(startForm);
+            startDialog.pack();
+            startDialog.setLocationRelativeTo(root);
+        }
+        startDialog.setVisible(true);
+    }
+
+    protected void closeStartForm() {
+        if (startDialog != null) {
+            startDialog.setVisible(false);
+        }
+    }
+
+    /**
+     * Runs a model call off the event thread, with the controls disabled and a busy message in the
+     * status bar, then hands the result (or the error) back on the event thread.
+     */
+    protected <T> void runInBackground(String busyText, Supplier<T> work, Consumer<T> onSuccess, Runnable onFailure) {
+        setBusy(true, busyText);
+        new SwingWorker<T, Void>() {
+            @Override
+            protected T doInBackground() {
+                return work.get();
+            }
+
+            @Override
+            protected void done() {
+                setBusy(false, null);
+                try {
+                    T result = get();
+                    act(() -> onSuccess.accept(result));
+                } catch (ExecutionException e) {
+                    failed(e.getCause(), onFailure);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }.execute();
+    }
+
+    /** What {@link #runInBackground} does once the work is over, run on the calling thread (used by tests). */
+    final <T> void completeNow(Supplier<T> work, Consumer<T> onSuccess, Runnable onFailure) {
+        T result;
+        try {
+            result = work.get();
+        } catch (RuntimeException e) {
+            failed(e, onFailure);
+            return;
+        }
+        act(() -> onSuccess.accept(result));
+    }
+
+    private void failed(Throwable error, Runnable onFailure) {
+        onFailure.run();
+        if (error instanceof IllegalArgumentException || error instanceof IllegalStateException
+                || error instanceof UncheckedIOException || error instanceof LLMException) {
+            showError(error.getMessage());
+        } else {
+            showError("Something went wrong: " + error);
+        }
+    }
+
+    private void setBusy(boolean nowBusy, String busyText) {
+        busy = nowBusy;
+        if (busyText != null) {
+            status.setText(busyText);
+        }
+        generate.setEnabled(!nowBusy);
+        startButton.setEnabled(!nowBusy);
+        refreshStoryControls();
+        if (!nowBusy && controller.getSession() != null) {
+            onStoryChanged(controller.getSession());
+        }
+    }
+
     /** Asks the user to pick a saved story; null if cancelled. */
     protected String chooseSession(List<String> ids) {
         Object choice = JOptionPane.showInputDialog(root, "Saved stories (newest first):", "Load a story",
@@ -138,9 +281,15 @@ public class StoryGUI implements StoryObserver {
         }
         refreshing = true;
         try {
-            status.setText("Story " + session.getId() + ": " + session.getLoreBook().size() + " lore entries, "
-                    + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns");
+            int waiting = session.getPendingProposals().size();
+            if (!busy) {
+                status.setText("Story " + session.getId() + ": " + session.getLoreBook().size() + " lore entries, "
+                        + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns"
+                        + (waiting == 0 ? "" : ", " + waiting + " lore proposal" + (waiting == 1 ? "" : "s") + " waiting"));
+            }
+            refreshStory(session);
             refreshLore();
+            refreshProposals(session);
             refreshCharacters(session);
         } finally {
             refreshing = false;
@@ -151,7 +300,8 @@ public class StoryGUI implements StoryObserver {
 
     private void buildMenu() {
         JMenu story = new JMenu("Story");
-        story.add(menuItem("New", () -> controller.newSession()));
+        story.add(menuItem("New (prepare lore and characters)", () -> controller.newSession()));
+        story.add(menuItem("Start story...", this::openStartForm));
         story.add(menuItem("Save", this::save));
         story.add(menuItem("Load...", this::load));
         story.addSeparator();
@@ -174,6 +324,241 @@ public class StoryGUI implements StoryObserver {
         if (id != null) {
             showMessage(controller.loadSession(id));
         }
+    }
+
+    // ---- story tab: turns, undo, retry, edit (F04, F10) ----
+
+    private Component buildStoryTab() {
+        storyTitle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        transcript.setEditable(false);
+        transcript.setLineWrap(true);
+        transcript.setWrapStyleWord(true);
+        usedLoreList.setVisibleRowCount(3);
+        usedLoreList.setToolTipText("Double-click an entry to open it in the Lore tab.");
+        usedLoreList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && usedLoreList.getSelectedValue() != null) {
+                    openLoreEntry(usedLoreList.getSelectedValue().getId());
+                }
+            }
+        });
+        JPanel used = new JPanel(new BorderLayout());
+        used.setBorder(BorderFactory.createTitledBorder("Lore used in the last turn"));
+        used.add(new JScrollPane(usedLoreList), BorderLayout.CENTER);
+
+        JPanel lastTurn = new JPanel(new BorderLayout());
+        lastTurn.add(used, BorderLayout.CENTER);
+        lastTurn.add(buttons(undo, retry, edit), BorderLayout.EAST);
+
+        input.setLineWrap(true);
+        input.setWrapStyleWord(true);
+        JPanel inputRow = new JPanel(new BorderLayout(4, 4));
+        inputRow.add(modeChoice, BorderLayout.WEST);
+        inputRow.add(new JScrollPane(input), BorderLayout.CENTER);
+        inputRow.add(send, BorderLayout.EAST);
+
+        JPanel south = new JPanel(new BorderLayout(4, 4));
+        south.add(lastTurn, BorderLayout.NORTH);
+        south.add(inputRow, BorderLayout.SOUTH);
+
+        send.addActionListener(e -> act(this::submitInput));
+        undo.addActionListener(e -> act(this::undoTurn));
+        retry.addActionListener(e -> act(this::retryTurn));
+        edit.addActionListener(e -> act(this::editTurn));
+
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        p.add(storyTitle, BorderLayout.NORTH);
+        p.add(new JScrollPane(transcript), BorderLayout.CENTER);
+        p.add(south, BorderLayout.SOUTH);
+        return p;
+    }
+
+    private void refreshStory(StorySession session) {
+        Scenario sc = session.getScenario();
+        storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : sc.getTitle());
+        StringBuilder sb = new StringBuilder();
+        if (sc != null && !sc.getOpeningSituation().isEmpty()) {
+            sb.append(sc.getOpeningSituation()).append("\n\n");
+        }
+        for (Turn t : session.getTurns()) {
+            sb.append("> ").append(t.getModeName()).append(": ").append(t.getUserInput()).append("\n\n")
+                    .append(t.getNarration()).append("\n\n");
+        }
+        transcript.setText(sb.toString().strip());
+        transcript.setCaretPosition(transcript.getDocument().getLength());
+        usedLoreItems.clear();
+        session.lastTurn().ifPresent(t -> {
+            for (String id : t.getUsedLoreIds()) {
+                controller.searchLore("").stream().filter(e -> e.getId().equals(id)).findFirst()
+                        .ifPresent(usedLoreItems::addElement);
+            }
+        });
+        refreshStoryControls();
+    }
+
+    /** Turn controls are usable only for a started story; undo, retry and edit only when they apply. */
+    private void refreshStoryControls() {
+        boolean started = controller.isStarted();
+        boolean hasTurn = started && controller.getSession().lastTurn().isPresent();
+        input.setEnabled(started && !busy);
+        modeChoice.setEnabled(started && !busy);
+        send.setEnabled(started && !busy);
+        undo.setEnabled(controller.canUndo() && !busy);
+        retry.setEnabled(controller.canUndo() && !busy);
+        edit.setEnabled(hasTurn && !busy);
+    }
+
+    void submitInput() {
+        String text = input.getText();
+        String mode = (String) modeChoice.getSelectedItem();
+        if (text.isBlank()) {
+            throw new IllegalArgumentException("Type something for the turn first.");
+        }
+        runInBackground("The storyteller is writing...", () -> controller.submitTurn(text, mode),
+                turn -> input.setText(""), () -> { });
+    }
+
+    void undoTurn() {
+        controller.undoTurn();
+    }
+
+    void retryTurn() {
+        Turn last = controller.getSession().lastTurn().orElseThrow(() -> new IllegalStateException("There is no turn to retry."));
+        runInBackground("The storyteller is rewriting the last turn...", controller::retryTurn, turn -> { }, () -> {
+            // The turn stays undone: give the user their input back so it can be resent.
+            input.setText(last.getUserInput());
+            modeChoice.setSelectedItem(last.getModeName());
+        });
+    }
+
+    void editTurn() {
+        Turn last = controller.getSession().lastTurn().orElseThrow(() -> new IllegalStateException("There is no turn to edit."));
+        String text = askNarration(last.getNarration());
+        if (text != null) {
+            controller.editTurn(text);
+        }
+    }
+
+    private void openLoreEntry(String id) {
+        tabs.setSelectedIndex(1);
+        loreSearch.setText("");
+        editingLoreId = id;
+        refreshLore();
+        controller.searchLore("").stream().filter(e -> e.getId().equals(id)).findFirst().ifPresent(this::showLoreEntry);
+    }
+
+    // ---- start-a-story form (F01, F05) ----
+
+    private JPanel buildStartForm() {
+        for (JTextArea a : List.of(scenarioPremise, scenarioSetting, scenarioOpening, plotBasis)) {
+            a.setLineWrap(true);
+            a.setWrapStyleWord(true);
+        }
+        JPanel idea = new JPanel(new BorderLayout(4, 4));
+        idea.setBorder(BorderFactory.createTitledBorder("Have a scenario drafted from an idea (optional)"));
+        idea.add(scenarioIdea, BorderLayout.CENTER);
+        idea.add(generate, BorderLayout.EAST);
+        JPanel fields = form(
+                "Title (made from the premise if empty)", scenarioTitle,
+                "Premise *", new JScrollPane(scenarioPremise),
+                "Tone", scenarioTone,
+                "Setting *", new JScrollPane(scenarioSetting),
+                "Opening situation", new JScrollPane(scenarioOpening),
+                "Plot basis (optional, kept hidden)", new JScrollPane(plotBasis));
+        generate.addActionListener(e -> act(this::generateDraft));
+        startButton.addActionListener(e -> act(this::startStory));
+        JPanel p = new JPanel(new BorderLayout(4, 4));
+        p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        p.add(idea, BorderLayout.NORTH);
+        p.add(fields, BorderLayout.CENTER);
+        p.add(buttons(startButton), BorderLayout.SOUTH);
+        p.setPreferredSize(new Dimension(620, 520));
+        return p;
+    }
+
+    void generateDraft() {
+        String idea = scenarioIdea.getText();
+        runInBackground("Drafting a scenario...", () -> controller.generateScenario(idea), draft -> {
+            scenarioTitle.setText(draft.getTitle());
+            scenarioPremise.setText(draft.getPremise());
+            scenarioTone.setText(draft.getTone());
+            scenarioSetting.setText(draft.getSetting());
+            scenarioOpening.setText(draft.getOpeningSituation());
+        }, () -> { });
+    }
+
+    void startStory() {
+        Scenario scenario = new Scenario(scenarioTitle.getText(), scenarioPremise.getText(), scenarioTone.getText(),
+                scenarioSetting.getText(), scenarioOpening.getText());
+        String basis = plotBasis.getText();
+        runInBackground("Preparing the story...", () -> {
+            controller.startStory(scenario, basis);
+            return controller.getSession();
+        }, started -> {
+            closeStartForm();
+            for (JTextField f : List.of(scenarioIdea, scenarioTitle, scenarioTone)) {
+                f.setText("");
+            }
+            for (JTextArea a : List.of(scenarioPremise, scenarioSetting, scenarioOpening, plotBasis)) {
+                a.setText("");
+            }
+            tabs.setSelectedIndex(0);
+        }, () -> { });
+    }
+
+    // ---- lore proposals (F07) ----
+
+    private Component buildProposalPanel() {
+        proposalList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        proposalList.setVisibleRowCount(4);
+        proposalList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean selected, boolean focus) {
+                LoreProposal p = (LoreProposal) value;
+                return super.getListCellRendererComponent(list, p.getId() + "  " + p.getTitle(), index, selected, focus);
+            }
+        });
+        proposalList.addListSelectionListener(e -> {
+            LoreProposal p = proposalList.getSelectedValue();
+            proposalContent.setText(p == null ? "" : p.getContent());
+        });
+        proposalContent.setEditable(false);
+        proposalContent.setLineWrap(true);
+        proposalContent.setWrapStyleWord(true);
+        approve.addActionListener(e -> act(() -> resolveSelected(true)));
+        reject.addActionListener(e -> act(() -> resolveSelected(false)));
+        JPanel center = new JPanel(new BorderLayout(4, 4));
+        center.add(new JScrollPane(proposalList), BorderLayout.WEST);
+        center.add(new JScrollPane(proposalContent), BorderLayout.CENTER);
+        proposalPanel.add(center, BorderLayout.CENTER);
+        proposalPanel.add(buttons(approve, reject), BorderLayout.SOUTH);
+        proposalPanel.setBorder(BorderFactory.createTitledBorder("Proposals from the storyteller (0 waiting)"));
+        return proposalPanel;
+    }
+
+    private void refreshProposals(StorySession session) {
+        LoreProposal selected = proposalList.getSelectedValue();
+        proposalItems.clear();
+        session.getPendingProposals().forEach(proposalItems::addElement);
+        if (selected != null && proposalItems.contains(selected)) {
+            proposalList.setSelectedValue(selected, true);
+        } else {
+            proposalContent.setText("");
+        }
+        int waiting = proposalItems.size();
+        proposalPanel.setBorder(BorderFactory.createTitledBorder("Proposals from the storyteller (" + waiting + " waiting)"));
+        tabs.setTitleAt(1, waiting == 0 ? "Lore" : "Lore (" + waiting + ")");
+    }
+
+    void resolveSelected(boolean approved) {
+        LoreProposal p = proposalList.getSelectedValue();
+        if (p == null) {
+            throw new IllegalArgumentException("Select a proposal first.");
+        }
+        controller.resolveProposal(p.getId(), approved);
     }
 
     // ---- lore tab (F02) ----
@@ -214,7 +599,10 @@ public class StoryGUI implements StoryObserver {
         right.add(form, BorderLayout.NORTH);
         right.add(buttons(loreNew, loreSave, loreDelete), BorderLayout.SOUTH);
 
-        return split(left, right);
+        JPanel tab = new JPanel(new BorderLayout());
+        tab.add(split(left, right), BorderLayout.CENTER);
+        tab.add(buildProposalPanel(), BorderLayout.SOUTH);
+        return tab;
     }
 
     private void refreshLore() {
@@ -423,7 +811,7 @@ public class StoryGUI implements StoryObserver {
     void act(Runnable action) {
         try {
             action.run();
-        } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException e) {
+        } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException | LLMException e) {
             showError(e.getMessage());
         }
     }
