@@ -12,6 +12,7 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 | 4 | [0913872](https://github.com/Polarralop/EECS3311Project/commit/0913872) | feat(persistence): save and load sessions as JSON | F11 |
 | 5 | [cee9994](https://github.com/Polarralop/EECS3311Project/commit/cee9994) | feat(llm): send requests through ClaudeAdapter with tool-use support | F04 (Adapter) |
 | 6 | [c749429](https://github.com/Polarralop/EECS3311Project/commit/c749429) | feat(controller): expose lore, characters and save/load in StoryCLI | F02, F03, F11 (MVC) |
+| 7 | [2990b8f](https://github.com/Polarralop/EECS3311Project/commit/2990b8f) | feat(ui): manage lore, characters and saves in StoryGUI | F02, F03, F11 (MVC, Observer) |
 
 ## Period 2: Oct 27 to Nov 2
 

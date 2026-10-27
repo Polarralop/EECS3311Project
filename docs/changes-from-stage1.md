@@ -59,3 +59,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC02, UC03, UC07; `StoryController`, `StoryCLI`; MVC.
 - Diagram to update: `figures/class-diagram/03-controller.png`; SD03 and SD09 show `showError` called by the controller.
 - Commit(s): feat(controller): expose lore, characters and save/load in StoryCLI
+
+## F04: Tool types carry what the agent loop needs
+- Original (Stage 1): `AgentTool` has `getName()`, `getSchema()` and `execute(args, session)`; `ToolCall(toolName, arguments)`; `ToolResult(success, content)`; `ToolRegistry.schemas(): List<String>`.
+- Implemented: `AgentTool` also has `getDescription()` (the text that tells the model when to use the tool). `ToolCall` is a record with the model's call `id` as well, so each result can be matched to its call. `ToolResult` is a record with `loreIds`, the lore entries the result showed the model, which is how a turn records the lore it used. `ToolRegistry.schemas()` returns `List<LLMToolSpec>` (name, description, JSON Schema) instead of bare schema strings. The registry reads each tool's `required` arguments from its schema and rejects a call that is missing one before the tool runs; an unknown tool or a tool that throws becomes a failed `ToolResult`, never an exception.
+- What changed and why: the Messages API needs a description and an id per tool call, and the F04 output "a record of which lore entries were used" needs the tool result to say which entries it returned. `LLMToolSpec` already existed in `llm` (see the Adapter entry), so the registry hands the agent ready-made specs.
+- How the user need is still met: the agent still reaches the story only through validated tool calls, and an invalid request is reported back to the agent while the turn continues (UC04 4b).
+- Affected use cases / classes / methods / patterns: UC04; `AgentTool`, `ToolCall`, `ToolResult`, `ToolRegistry`, `SearchLoreTool`, `GetCharacterTool`; Facade (subsystem).
+- Diagram to update: `figures/class-diagram/07-agent-tools.png`.
+- Commit(s): feat(tools): register SearchLoreTool and GetCharacterTool in ToolRegistry
