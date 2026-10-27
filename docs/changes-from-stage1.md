@@ -68,3 +68,21 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04; `AgentTool`, `ToolCall`, `ToolResult`, `ToolRegistry`, `SearchLoreTool`, `GetCharacterTool`; Facade (subsystem).
 - Diagram to update: `figures/class-diagram/07-agent-tools.png`.
 - Commit(s): feat(tools): register SearchLoreTool and GetCharacterTool in ToolRegistry
+
+## F04/F06: Steering guidance is built without a separate model call
+- Original (Stage 1): during a turn, `PlotPlanner.planStep(session, input)` sends the input, the recent story and the next pending event to the model and returns guidance (continue, nudge or revise), which then goes into the narration request.
+- Implemented: `planStep` builds the guidance from the plot itself: how many events are reached, the next pending event, and an instruction to nudge back gradually; it returns an empty string when the story has no plan and a "bring the threads together" note when every event is reached. The narration call receives it in a section marked hidden, and that same call decides whether to continue, nudge or (with `UpdatePlotTool`, F06) revise.
+- What changed and why: a second model call per turn would double the cost and latency of every turn for a decision the narrating model can make itself while it already has the guidance, the input and the story in front of it. The decision is still the model's, so F06 stays an AI feature.
+- How the user need is still met: the story is still steered towards the hidden events, and the events are still never shown to the user.
+- Affected use cases / classes / methods / patterns: UC04 step 6; `PlotPlanner.planStep`, `StoryAgent.takeTurn`; Facade.
+- Diagram to update: SD05 (no model call inside planStep).
+- Commit(s): feat(agent): run the tool-use loop in StoryAgent.takeTurn
+
+## F04: StoryAgent wiring and the turn loop limit
+- Original (Stage 1): `StoryAgent` composes `PlotPlanner`, `ConsistencyChecker` and `MemoryManager` and uses `ToolRegistry` and `LLMClient`; `runToolLoop(request, session): LLMResponse` repeats while the response has tool calls.
+- Implemented: `StoryAgent(llm, tools, planner, memory)` plus `StoryAgent.create(llm)`, which registers the standard tools. `runToolLoop(request, session, usedLore)` also collects the lore ids of successful lookups, and stops after 8 model calls with an error so a model that keeps calling tools cannot loop forever. The system prompt is read from `src/main/resources/prompts/system.txt`. `ConsistencyChecker` is added to the constructor when F08 is built.
+- What changed and why: the loop needs a bound; recording the lore used is the F04 output "a record on the turn of which lore entries were used".
+- How the user need is still met: as designed; a turn that cannot finish shows a message and adds nothing (UC04 7a).
+- Affected use cases / classes / methods / patterns: UC04; `StoryAgent`; Facade, Strategy.
+- Diagram to update: `figures/class-diagram/06-agent.png`.
+- Commit(s): feat(agent): run the tool-use loop in StoryAgent.takeTurn
