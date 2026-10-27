@@ -18,6 +18,9 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 
 | # | Commit | Summary | Features |
 |---|---|---|---|
+| 1 | [2f31992](https://github.com/Polarralop/EECS3311Project/commit/2f31992) | feat(tools): register SearchLoreTool and GetCharacterTool in ToolRegistry | F04 (tools) |
+| 2 | [139c4c0](https://github.com/Polarralop/EECS3311Project/commit/139c4c0) | feat(agent): run the tool-use loop in StoryAgent.takeTurn | F04, F06 (Facade, Strategy) |
+| 3 | [569e476](https://github.com/Polarralop/EECS3311Project/commit/569e476) | feat(agent): plan hidden pivotal events before the story starts | F01, F05 |
 
 ## Period 3: Nov 3 to Nov 9
 

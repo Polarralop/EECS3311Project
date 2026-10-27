@@ -76,6 +76,7 @@ class StoryCLITest {
                 new
                 start
 
+
                 A courier carries a forbidden letter.
                 grim
                 A city under grey snow
@@ -90,9 +91,40 @@ class StoryCLITest {
     }
 
     @Test
+    void startCanDraftTheScenarioAndLetTheUserEditIt() {
+        llm.enqueue(LLMResponse.ofText("{\"title\": \"Ashfall\", \"premise\": \"A courier carries a letter.\", "
+                        + "\"tone\": \"grim\", \"setting\": \"A city under snow.\", \"openingSituation\": \"\"}"))
+                .enqueue(LLMResponse.ofText("{\"events\": [\"E\"]}"));
+        Run r = run("""
+                start
+                a courier in a snowy city
+                y
+                Ember Road
+
+
+
+
+
+                """);
+        assertTrue(r.output().contains("Premise: A courier carries a letter."));
+        assertTrue(r.output().contains("Premise [A courier carries a letter.]: "));
+        assertEquals("Ember Road", r.controller().getSession().getScenario().getTitle());
+        assertEquals("A city under snow.", r.controller().getSession().getScenario().getSetting());
+    }
+
+    @Test
+    void aRejectedDraftStartsNothing() {
+        llm.enqueue(LLMResponse.ofText("{\"title\": \"T\", \"premise\": \"P\", \"setting\": \"S\"}"));
+        Run r = run("start\nan idea\nn\n");
+        assertTrue(r.output().contains("Draft discarded."));
+        assertEquals(1, llm.getRequests().size());
+        assertEquals(null, r.controller().getSession());
+    }
+
+    @Test
     void aFailedStartIsShownAsAnError() {
         llm.enqueueFailure(new LLMException("Could not reach Claude. Check your internet connection."));
-        Run r = run("start\n\npremise\n\nsetting\n\n\n");
+        Run r = run("start\n\n\npremise\n\nsetting\n\n\n");
         assertTrue(r.output().contains("Error: Could not reach Claude. Check your internet connection."));
     }
 

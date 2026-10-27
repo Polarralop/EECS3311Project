@@ -10,7 +10,6 @@ import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -26,8 +25,6 @@ public class PlotPlanner {
 
     /** A plan longer than this is cut, so a long answer cannot make the story drag on. */
     static final int MAX_EVENTS = 8;
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final LLMClient llm;
     private final String plannerPrompt;
@@ -71,15 +68,8 @@ public class PlotPlanner {
      */
     static List<String> parseEvents(String text) {
         List<String> found = new ArrayList<>();
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            return found;
-        }
-        JsonNode root;
-        try {
-            root = JSON.readTree(text.substring(start, end + 1));
-        } catch (Exception e) {
+        JsonNode root = StoryAgent.jsonObjectIn(text);
+        if (root == null) {
             return found;
         }
         for (JsonNode n : root.path("events")) {

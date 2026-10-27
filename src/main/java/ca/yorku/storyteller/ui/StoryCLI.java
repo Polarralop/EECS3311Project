@@ -35,7 +35,7 @@ public class StoryCLI implements StoryObserver {
     private static final String HELP = """
             Commands:
               new                     open an empty story (prepare lore and characters before starting)
-              start                   write the scenario and start the story (you will be asked for each field)
+              start                   start the story: have a scenario drafted from an idea, or write it yourself
               save                    save the current story
               load <id>               load a saved story
               sessions                list saved stories
@@ -124,11 +124,22 @@ public class StoryCLI implements StoryObserver {
     // ---- scenario and pivotal events (F01, F05) ----
 
     private void start() {
-        String title = ask("Title (optional)");
-        String premise = ask("Premise");
-        String tone = ask("Tone (optional)");
-        String setting = ask("Setting");
-        String opening = ask("Opening situation (optional)");
+        String idea = ask("Story idea to draft from (or press Enter to write the scenario yourself)");
+        Scenario draft = new Scenario("", "", "", "", "");
+        if (!idea.isEmpty()) {
+            out.println("Drafting a scenario...");
+            draft = controller.generateScenario(idea);
+            out.println(draft.describe());
+            if (!yes(ask("Use this draft? You can edit each field next (y/n)"))) {
+                out.println("Draft discarded. Type \"start\" to try again.");
+                return;
+            }
+        }
+        String title = askKeep("Title (optional)", draft.getTitle());
+        String premise = askKeep("Premise", draft.getPremise());
+        String tone = askKeep("Tone (optional)", draft.getTone());
+        String setting = askKeep("Setting", draft.getSetting());
+        String opening = askKeep("Opening situation (optional)", draft.getOpeningSituation());
         String basis = ask("Plot basis (optional, kept hidden)");
         Scenario scenario = new Scenario(title, premise, tone, setting, opening);
         out.println("Preparing the story...");
@@ -280,9 +291,9 @@ public class StoryCLI implements StoryObserver {
         return line.strip();
     }
 
-    /** Asks for a value, showing the current one; an empty answer keeps it. */
+    /** Asks for a value, showing the current one (if any); an empty answer keeps it. */
     private String askKeep(String label, String current) {
-        String answer = ask(label + " [" + current + "]");
+        String answer = ask(current.isEmpty() ? label : label + " [" + current + "]");
         return answer.isEmpty() ? current : answer;
     }
 

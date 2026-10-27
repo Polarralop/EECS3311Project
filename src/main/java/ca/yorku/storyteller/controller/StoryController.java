@@ -24,7 +24,7 @@ import java.util.List;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): generateScenario(prompt), submitTurn(), undoTurn(), retryTurn(), editTurn(),
+ * <p>TODO (Stage 1 design): submitTurn(), undoTurn(), retryTurn(), editTurn(),
  * resolveProposal(), requestEnding().
  */
 public class StoryController {
@@ -74,6 +74,17 @@ public class StoryController {
     }
 
     // ---- scenario and pivotal events (F01, F05) ----
+
+    /**
+     * Has the agent draft a scenario from a short idea. Nothing changes until the user edits the draft
+     * and calls {@link #startStory}.
+     *
+     * @throws IllegalArgumentException if the idea is empty
+     * @throws ca.yorku.storyteller.llm.LLMException if Claude declines or the call fails
+     */
+    public Scenario generateScenario(String prompt) {
+        return agent.generateScenario(prompt);
+    }
 
     /**
      * Starts the story: checks the scenario, has the agent plan the hidden pivotal events, then opens

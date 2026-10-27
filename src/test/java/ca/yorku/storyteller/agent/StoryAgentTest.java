@@ -161,4 +161,37 @@ class StoryAgentTest {
         assertThrows(IllegalArgumentException.class, () -> agent.takeTurn(session, "  ", new DoModeStrategy()));
         assertTrue(llm.getRequests().isEmpty());
     }
+
+    // ---- scenario drafts (F01) ----
+
+    @Test
+    void generateScenarioReadsTheFiveFieldsFromTheReply() {
+        llm.enqueue(LLMResponse.ofText("Sure!\n{\"title\": \"Ashfall\", \"premise\": \"A courier carries a letter.\", "
+                + "\"tone\": \"grim\", \"setting\": \"A city under snow.\", \"openingSituation\": \"At the gate.\"}"));
+        Scenario s = agent.generateScenario("  a courier in a snowy city ");
+        assertEquals("Ashfall", s.getTitle());
+        assertEquals("A courier carries a letter.", s.getPremise());
+        assertEquals("grim", s.getTone());
+        assertEquals("A city under snow.", s.getSetting());
+        assertEquals("At the gate.", s.getOpeningSituation());
+        LLMRequest r = llm.getRequests().get(0);
+        assertEquals("a courier in a snowy city", r.getMessages().get(0).getText());
+        assertTrue(r.getSystemPrompt().contains("openingSituation"));
+    }
+
+    @Test
+    void aDraftWithoutPremiseOrSettingIsAFailedCall() {
+        llm.enqueue(LLMResponse.ofText("{\"title\": \"Ashfall\", \"premise\": \"\"}"))
+                .enqueue(LLMResponse.ofText("not json"));
+        assertTrue(assertThrows(LLMException.class, () -> agent.generateScenario("idea")).getMessage().contains("incomplete"));
+        assertThrows(LLMException.class, () -> agent.generateScenario("idea"));
+    }
+
+    @Test
+    void aRefusedDraftSaysSoAndAnEmptyIdeaIsRejected() {
+        llm.enqueue(LLMResponse.ofRefusal());
+        assertTrue(assertThrows(LLMException.class, () -> agent.generateScenario("idea")).getMessage().contains("declined"));
+        assertThrows(IllegalArgumentException.class, () -> agent.generateScenario(" "));
+        assertEquals(1, llm.getRequests().size());
+    }
 }

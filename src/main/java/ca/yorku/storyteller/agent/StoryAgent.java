@@ -17,6 +17,8 @@ import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -33,12 +35,14 @@ import java.util.Set;
  *
  * <p>Features: F01 F04-F09 F11 F12.
  * <p>Patterns: Facade (Facade), Strategy (Context).
- * <p>TODO (Stage 1 design): generateScenario(prompt) (F01), recap(session) (F09), generateEnding() (F12).
+ * <p>TODO (Stage 1 design): recap(session) (F09), generateEnding() (F12).
  */
 public class StoryAgent {
 
     /** Model calls allowed in one turn before the agent gives up, so a confused model cannot loop forever. */
     static final int MAX_TOOL_ROUNDS = 8;
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final LLMClient llm;
     private final ToolRegistry tools;
@@ -60,6 +64,32 @@ public class StoryAgent {
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
         return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
+    }
+
+    /**
+     * Drafts a scenario from the user's short idea (F01). The draft is returned for the user to edit;
+     * nothing is stored.
+     *
+     * @throws IllegalArgumentException if the idea is empty
+     * @throws LLMException if the model declines, fails, or the draft has no premise or setting
+     */
+    public Scenario generateScenario(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("Describe the story you want in a few words first.");
+        }
+        LLMResponse reply = llm.generate(new LLMRequest(loadPrompt("scenario"),
+                List.of(LLMMessage.user(prompt.strip())), List.of(), 2_000));
+        if (reply.isRefused()) {
+            throw new LLMException("Claude declined to draft that story. Rephrase the idea or write the scenario yourself.");
+        }
+        JsonNode draft = jsonObjectIn(reply.getText());
+        Scenario scenario = draft == null ? null : new Scenario(draft.path("title").asText(""),
+                draft.path("premise").asText(""), draft.path("tone").asText(""),
+                draft.path("setting").asText(""), draft.path("openingSituation").asText(""));
+        if (scenario == null || scenario.getPremise().isEmpty() || scenario.getSetting().isEmpty()) {
+            throw new LLMException("Claude's draft was incomplete. Try again or write the scenario yourself.");
+        }
+        return scenario;
     }
 
     /**
@@ -138,6 +168,24 @@ public class StoryAgent {
         }
         sb.append("## This turn (").append(mode.getName()).append(" mode)\n").append(mode.frame(input));
         return sb.toString();
+    }
+
+    /**
+     * The JSON object in a reply, ignoring any text or code fence around it; null if there is none or it
+     * cannot be read.
+     */
+    static JsonNode jsonObjectIn(String text) {
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            return null;
+        }
+        try {
+            JsonNode node = JSON.readTree(text.substring(start, end + 1));
+            return node.isObject() ? node : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Reads src/main/resources/prompts/{name}.txt. */
