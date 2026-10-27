@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
+import ca.yorku.storyteller.agent.StoryAgent;
+import ca.yorku.storyteller.llm.FakeLLMClient;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +20,9 @@ import org.junit.jupiter.api.io.TempDir;
  * buttons and checks what reaches the controller and what the observer refresh shows.
  */
 class StoryGUITest {
+
+    /** Scripted model; tests never make live calls. */
+    private final FakeLLMClient llm = new FakeLLMClient();
 
     @TempDir
     Path dir;
@@ -53,7 +58,7 @@ class StoryGUITest {
 
     @BeforeEach
     void setUp() throws Exception {
-        controller = new StoryController(new JsonSessionRepository(dir));
+        controller = new StoryController(new JsonSessionRepository(dir), StoryAgent.create(llm));
         onEdt(() -> {
             gui = new TestGUI(controller);
             controller.addObserver(gui);

@@ -86,3 +86,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04; `StoryAgent`; Facade, Strategy.
 - Diagram to update: `figures/class-diagram/06-agent.png`.
 - Commit(s): feat(agent): run the tool-use loop in StoryAgent.takeTurn
+
+## F01/F05: Starting a story keeps lore prepared beforehand
+- Original (Stage 1): `StoryController.startStory(scenario, plotBasis)` checks the mandatory fields, has the events planned and creates the `StorySession` that holds the scenario; the GUI reaches it from a plus button in a story list.
+- Implemented: `startStory` calls the new `Scenario.readyToStart()` (premise and setting mandatory; an empty title becomes the first words of the premise), then `StoryAgent.planPlot`, and only then changes anything. If the open session is empty and not started (created with `new`, possibly with lore and characters added), the scenario and plot are put on it; otherwise a new session is created. `StoryController` now takes the `StoryAgent` in its constructor, and `isStarted()` tells the front ends whether turns are possible. The front ends build the controller through `StoryCLI.createController()`, which reads `.env`; without an API key the app still opens and model features report the missing key.
+- What changed and why: week 1 already let the user add lore and characters to a session before any scenario exists (F02 and F03 do not need one), so starting the story must not throw that preparation away. Planning before any change means a failed plan leaves everything as it was (F05: "the story is not started").
+- How the user need is still met: the user still writes the scenario, optionally a plot basis, and starts; the plan stays hidden.
+- Affected use cases / classes / methods / patterns: UC01; `StoryController`, `Scenario`, `StoryAgent`, `PlotPlanner`, `StoryCLI`, `StoryGUI`; Facade, MVC.
+- Diagram to update: `figures/class-diagram/03-controller.png` (constructor, isStarted), `04-model-story-and-lore.png` (readyToStart); SD02 (session reused when empty).
+- Commit(s): feat(agent): plan hidden pivotal events before the story starts

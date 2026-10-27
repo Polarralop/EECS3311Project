@@ -5,15 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ca.yorku.storyteller.model.EventStatus;
-import ca.yorku.storyteller.model.PivotalEvent;
-import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Context building in {@link MemoryManager} and the steering text from {@link PlotPlanner#planStep}. */
+/** Context building in {@link MemoryManager}. */
 class MemoryManagerTest {
 
     private static StorySession withTurns(int n) {
@@ -48,19 +45,5 @@ class MemoryManagerTest {
     @Test
     void theLimitMustBePositive() {
         assertThrows(IllegalArgumentException.class, () -> new MemoryManager(0));
-    }
-
-    @Test
-    void planStepNamesOnlyTheNextPendingEvent() {
-        StorySession s = new StorySession("s");
-        assertEquals("", new PlotPlanner().planStep(s, "x"));
-        Plot plot = new Plot("", List.of(new PivotalEvent("E1", "A"), new PivotalEvent("E2", "B")));
-        plot.markReached("E1");
-        s.setPlot(plot);
-        String g = new PlotPlanner().planStep(s, "x");
-        assertTrue(g.startsWith("Pivotal events reached so far: 1. Next pivotal event (E2): B"));
-        plot.markReached("E2");
-        assertEquals(EventStatus.REACHED, plot.getEvents().get(1).getStatus());
-        assertTrue(new PlotPlanner().planStep(s, "x").startsWith("Every pivotal event has been reached."));
     }
 }

@@ -1,5 +1,7 @@
 package ca.yorku.storyteller.model;
 
+import java.util.Arrays;
+
 /**
  * Title, premise, tone, setting and opening situation of a story.
  *
@@ -24,6 +26,29 @@ public class Scenario {
         this.tone = clean(tone);
         this.setting = clean(setting);
         this.openingSituation = clean(openingSituation);
+    }
+
+    /**
+     * Checks the fields a story needs before it starts and fills in a missing title (F01): premise and
+     * setting are mandatory; an empty title becomes the first words of the premise.
+     *
+     * @return this scenario, or a copy with the title filled in
+     * @throws IllegalArgumentException if the premise or the setting is empty
+     */
+    public Scenario readyToStart() {
+        if (premise.isEmpty()) {
+            throw new IllegalArgumentException("A story needs a premise.");
+        }
+        if (setting.isEmpty()) {
+            throw new IllegalArgumentException("A story needs a setting.");
+        }
+        if (!title.isEmpty()) {
+            return this;
+        }
+        String firstSentence = premise.replaceAll("(?s)[.!?].*$", "").strip();
+        String[] words = firstSentence.split("\\s+");
+        String made = String.join(" ", Arrays.copyOf(words, Math.min(words.length, 6)));
+        return new Scenario(made.isEmpty() ? "Untitled story" : made, premise, tone, setting, openingSituation);
     }
 
     /** The scenario as text for the model's context. Empty fields are left out. */

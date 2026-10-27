@@ -1,10 +1,15 @@
 package ca.yorku.storyteller.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
+import ca.yorku.storyteller.agent.StoryAgent;
+import ca.yorku.storyteller.llm.FakeLLMClient;
+import ca.yorku.storyteller.llm.LLMException;
+import ca.yorku.storyteller.llm.LLMResponse;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -17,6 +22,9 @@ import org.junit.jupiter.api.io.TempDir;
 /** Drives {@link StoryCLI} with scripted input, through the real controller and repository. */
 class StoryCLITest {
 
+    /** Scripted model; tests never make live calls. */
+    private final FakeLLMClient llm = new FakeLLMClient();
+
     @TempDir
     Path dir;
 
@@ -24,7 +32,7 @@ class StoryCLITest {
     }
 
     private Run run(String script) {
-        StoryController controller = new StoryController(new JsonSessionRepository(dir));
+        StoryController controller = new StoryController(new JsonSessionRepository(dir), StoryAgent.create(llm));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
         StoryCLI cli = new StoryCLI(controller, new BufferedReader(new StringReader(script)), out);
@@ -59,6 +67,33 @@ class StoryCLITest {
         assertTrue(r.output().contains("L1 [pinned] Ashfall"));
         assertTrue(r.output().contains("Error: There is no lore entry with id L2."));
         assertEquals(1, r.controller().searchLore("").size());
+    }
+
+    @Test
+    void startAsksForTheScenarioAndNeverPrintsThePlan() {
+        llm.enqueue(LLMResponse.ofText("{\"events\": [\"The letter is stolen.\"]}"));
+        Run r = run("""
+                new
+                start
+
+                A courier carries a forbidden letter.
+                grim
+                A city under grey snow
+                Mira waits at the gate.
+                a betrayal
+                """);
+        assertTrue(r.output().contains("Preparing the story..."));
+        assertTrue(r.output().contains("The story \"A courier carries a forbidden letter\" has begun."));
+        assertFalse(r.output().contains("The letter is stolen"));
+        assertFalse(r.output().contains("a betrayal"));
+        assertEquals(1, r.controller().getSession().getPlot().getEvents().size());
+    }
+
+    @Test
+    void aFailedStartIsShownAsAnError() {
+        llm.enqueueFailure(new LLMException("Could not reach Claude. Check your internet connection."));
+        Run r = run("start\n\npremise\n\nsetting\n\n\n");
+        assertTrue(r.output().contains("Error: Could not reach Claude. Check your internet connection."));
     }
 
     @Test

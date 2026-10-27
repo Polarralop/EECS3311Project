@@ -1,8 +1,11 @@
 package ca.yorku.storyteller.controller;
 
+import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Relationship;
+import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.persistence.SessionRepository;
 import ca.yorku.storyteller.ui.StoryObserver;
@@ -16,25 +19,27 @@ import java.util.List;
  *
  * <p>Every method that changes the story notifies the session's observers once. A method that cannot
  * complete throws {@link IllegalArgumentException} or {@link IllegalStateException} (or
- * {@link java.io.UncheckedIOException} for save files) with a message the front end shows as an error;
- * nothing is changed in that case.
+ * {@link java.io.UncheckedIOException} for save files, {@link ca.yorku.storyteller.llm.LLMException} for a
+ * failed model call) with a message the front end shows as an error; nothing is changed in that case.
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): generateScenario(prompt), startStory(scenario, plotBasis), submitTurn(), undoTurn(),
- * retryTurn(), editTurn(), resolveProposal(), requestEnding().
+ * <p>TODO (Stage 1 design): generateScenario(prompt), submitTurn(), undoTurn(), retryTurn(), editTurn(),
+ * resolveProposal(), requestEnding().
  */
 public class StoryController {
 
     private static final DateTimeFormatter ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final SessionRepository repository;
+    private final StoryAgent agent;
     private final CommandHistory history = new CommandHistory();
     private final List<StoryObserver> observers = new ArrayList<>();
     private StorySession session;
 
-    public StoryController(SessionRepository repository) {
+    public StoryController(SessionRepository repository, StoryAgent agent) {
         this.repository = repository;
+        this.agent = agent;
     }
 
     /** Registers a front end; it is attached to the current session and to every later one. */
@@ -56,12 +61,48 @@ public class StoryController {
 
     /** Starts an empty story (lore and characters can be prepared before the scenario). */
     public StorySession newSession() {
+        switchTo(new StorySession(freshId()));
+        return session;
+    }
+
+    private String freshId() {
         String id = "story-" + LocalDateTime.now().format(ID_FORMAT);
-        while (repository.listSessions().contains(id)) {
+        while (repository.listSessions().contains(id) || (session != null && session.getId().equals(id))) {
             id = id + "x";
         }
-        switchTo(new StorySession(id));
-        return session;
+        return id;
+    }
+
+    // ---- scenario and pivotal events (F01, F05) ----
+
+    /**
+     * Starts the story: checks the scenario, has the agent plan the hidden pivotal events, then opens
+     * the story with both. Lore and characters prepared in an empty, unstarted session are kept;
+     * otherwise a new session is created. The plan is never returned to the front end.
+     *
+     * @throws IllegalArgumentException if the premise or setting is empty
+     * @throws ca.yorku.storyteller.llm.LLMException if planning fails; no story is started
+     */
+    public void startStory(Scenario scenario, String plotBasis) {
+        Scenario ready = scenario.readyToStart();
+        Plot plot = agent.planPlot(ready, plotBasis);
+        StorySession target = session;
+        if (target == null || target.getScenario() != null || !target.getTurns().isEmpty()) {
+            target = new StorySession(freshId());
+        }
+        target.setScenario(ready);
+        target.setPlot(plot);
+        if (target == session) {
+            history.clear();
+            session.notifyObservers();
+        } else {
+            switchTo(target);
+        }
+    }
+
+    /** True once the current story has a scenario and can take turns. */
+    public boolean isStarted() {
+        return session != null && session.getScenario() != null;
     }
 
     // ---- lore (F02) ----

@@ -13,6 +13,8 @@ import ca.yorku.storyteller.llm.LLMResponse;
 import ca.yorku.storyteller.llm.LLMToolCall;
 import ca.yorku.storyteller.llm.LLMToolResult;
 import ca.yorku.storyteller.model.Character;
+import ca.yorku.storyteller.model.Plot;
+import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
 import java.io.IOException;
@@ -31,8 +33,7 @@ import java.util.Set;
  *
  * <p>Features: F01 F04-F09 F11 F12.
  * <p>Patterns: Facade (Facade), Strategy (Context).
- * <p>TODO (Stage 1 design): generateScenario(prompt), planPlot() (this week), recap(session) (F09),
- * generateEnding() (F12).
+ * <p>TODO (Stage 1 design): generateScenario(prompt) (F01), recap(session) (F09), generateEnding() (F12).
  */
 public class StoryAgent {
 
@@ -58,7 +59,16 @@ public class StoryAgent {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
-        return new StoryAgent(llm, registry, new PlotPlanner(), new MemoryManager());
+        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
+    }
+
+    /**
+     * Plans the hidden pivotal events for a new story (F05).
+     *
+     * @throws LLMException if the model declines, fails or returns no events
+     */
+    public Plot planPlot(Scenario scenario, String basis) {
+        return planner.createPlot(scenario, basis);
     }
 
     /**

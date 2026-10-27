@@ -1,9 +1,14 @@
 package ca.yorku.storyteller.ui;
 
+import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.controller.StoryController;
+import ca.yorku.storyteller.llm.ClaudeAdapter;
+import ca.yorku.storyteller.llm.LLMClient;
+import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.Relationship;
+import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
 import io.github.cdimascio.dotenv.Dotenv;
@@ -29,7 +34,8 @@ public class StoryCLI implements StoryObserver {
 
     private static final String HELP = """
             Commands:
-              new                     start an empty story
+              new                     open an empty story (prepare lore and characters before starting)
+              start                   write the scenario and start the story (you will be asked for each field)
               save                    save the current story
               load <id>               load a saved story
               sessions                list saved stories
@@ -86,7 +92,8 @@ public class StoryCLI implements StoryObserver {
                 case "" -> { }
                 case "help" -> out.println(HELP);
                 case "quit", "exit" -> running = false;
-                case "new" -> out.println("Started " + controller.newSession().getId() + ".");
+                case "new" -> out.println("Opened " + controller.newSession().getId() + ". Add lore and characters, then type \"start\".");
+                case "start" -> start();
                 case "save" -> {
                     controller.saveSession();
                     out.println("Saved as " + controller.getSession().getId() + ".");
@@ -98,7 +105,7 @@ public class StoryCLI implements StoryObserver {
                 case "rel" -> relationship(sub);
                 default -> printError("Unknown command \"" + words[0] + "\". Type \"help\".");
             }
-        } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException e) {
+        } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException | LLMException e) {
             printError(e.getMessage());
         }
     }
@@ -112,6 +119,21 @@ public class StoryCLI implements StoryObserver {
     public void onStoryChanged(StorySession session) {
         out.println("[" + session.getId() + ": " + session.getLoreBook().size() + " lore, "
                 + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns]");
+    }
+
+    // ---- scenario and pivotal events (F01, F05) ----
+
+    private void start() {
+        String title = ask("Title (optional)");
+        String premise = ask("Premise");
+        String tone = ask("Tone (optional)");
+        String setting = ask("Setting");
+        String opening = ask("Opening situation (optional)");
+        String basis = ask("Plot basis (optional, kept hidden)");
+        Scenario scenario = new Scenario(title, premise, tone, setting, opening);
+        out.println("Preparing the story...");
+        controller.startStory(scenario, basis);
+        out.println("The story \"" + controller.getSession().getScenario().getTitle() + "\" has begun.");
     }
 
     // ---- lore (F02) ----
@@ -285,10 +307,27 @@ public class StoryCLI implements StoryObserver {
         return arg.strip();
     }
 
-    public static void main(String[] args) {
+    /**
+     * Builds the controller both front ends use, from .env (or the environment): the save folder, the
+     * model and the API key. Without a key the app still opens; every model call then reports the
+     * missing key as an error, and the deterministic features keep working.
+     */
+    static StoryController createController() {
         Dotenv env = Dotenv.configure().ignoreIfMissing().load();
         Path saveDir = Path.of(env.get("STORYTELLER_SAVE_DIR", "saves"));
-        StoryController controller = new StoryController(new JsonSessionRepository(saveDir));
+        LLMClient llm;
+        try {
+            llm = ClaudeAdapter.create(env.get("ANTHROPIC_API_KEY", ""), env.get("STORYTELLER_MODEL", ""));
+        } catch (LLMException missingKey) {
+            llm = request -> {
+                throw missingKey;
+            };
+        }
+        return new StoryController(new JsonSessionRepository(saveDir), StoryAgent.create(llm));
+    }
+
+    public static void main(String[] args) {
+        StoryController controller = createController();
         BufferedReader stdin = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         StoryCLI cli = new StoryCLI(controller, stdin, System.out);
         controller.addObserver(cli);

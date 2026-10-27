@@ -5,8 +5,6 @@ import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.Relationship;
 import ca.yorku.storyteller.model.StorySession;
-import ca.yorku.storyteller.persistence.JsonSessionRepository;
-import io.github.cdimascio.dotenv.Dotenv;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -15,7 +13,6 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.UncheckedIOException;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -502,9 +499,7 @@ public class StoryGUI implements StoryObserver {
     }
 
     public static void main(String[] args) {
-        Dotenv env = Dotenv.configure().ignoreIfMissing().load();
-        Path saveDir = Path.of(env.get("STORYTELLER_SAVE_DIR", "saves"));
-        StoryController controller = new StoryController(new JsonSessionRepository(saveDir));
+        StoryController controller = StoryCLI.createController();
         SwingUtilities.invokeLater(() -> {
             StoryGUI gui = new StoryGUI(controller);
             controller.addObserver(gui);
