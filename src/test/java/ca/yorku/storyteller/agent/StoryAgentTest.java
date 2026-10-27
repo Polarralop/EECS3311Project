@@ -95,7 +95,7 @@ class StoryAgentTest {
         llm.enqueue(LLMResponse.ofText("Fine."));
         agent.takeTurn(session, "wait", new DoModeStrategy());
         LLMRequest r = llm.getRequests().get(0);
-        assertEquals(List.of("search_lore", "get_character"), r.getTools().stream().map(s -> s.name()).toList());
+        assertEquals(List.of("search_lore", "get_character", "propose_lore"), r.getTools().stream().map(s -> s.name()).toList());
         assertTrue(r.getSystemPrompt().contains("Never reveal"));
     }
 

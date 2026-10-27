@@ -190,6 +190,23 @@ class StoryCLITest {
     }
 
     @Test
+    void proposalsAreListedApprovedAndRejected() {
+        withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(
+                        new LLMToolCall("a", "propose_lore", Map.of("title", "The Ember Guild", "content", "Smiths.")),
+                        new LLMToolCall("b", "propose_lore", Map.of("title", "Grey Snow", "content", "It never melts.")))))
+                .enqueue(LLMResponse.ofText("The forges glow."));
+        Run r = started("do visit the forges\nproposals\napprove P1\nreject P2\nproposals\napprove P2\n");
+        String out = r.output();
+        assertTrue(out.contains("2 lore proposals waiting (type \"proposals\")"));
+        assertTrue(out.contains("P1 The Ember Guild: Smiths."));
+        assertTrue(out.contains("Approved P1; it is now lore."));
+        assertTrue(out.contains("Rejected P2."));
+        assertTrue(out.contains("No lore proposals waiting."));
+        assertTrue(out.contains("Error: There is no pending proposal P2."));
+        assertEquals("The Ember Guild", r.controller().searchLore("").get(0).getTitle());
+    }
+
+    @Test
     void turnsBeforeStartingAreRefused() {
         Run r = run("new\ndo something\n");
         assertTrue(r.output().contains("Error: Start the story first."));

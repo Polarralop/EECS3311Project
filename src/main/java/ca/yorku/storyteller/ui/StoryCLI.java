@@ -7,6 +7,7 @@ import ca.yorku.storyteller.llm.LLMClient;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.LoreProposal;
 import ca.yorku.storyteller.model.Relationship;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
@@ -47,6 +48,9 @@ public class StoryCLI implements StoryObserver {
               undo                    undo the last turn (or the last edit)
               retry                   write the last turn again from the same input
               edit                    replace the last turn's narration with your own text
+              proposals               list the lore the storyteller has proposed
+              approve <id>            add a proposal to the lore book
+              reject <id>             discard a proposal
               lore [list]             list lore entries (pinned first)
               lore search <words>     search lore by title, content and tags
               lore show <id>          show one entry
@@ -117,6 +121,12 @@ public class StoryCLI implements StoryObserver {
                 }
                 case "load" -> out.println(controller.loadSession(requireArg(words.length > 1 ? words[1] : "", "load <id>")));
                 case "sessions" -> listSessions();
+                case "proposals" -> printProposals();
+                case "approve", "reject" -> {
+                    String id = requireArg(words.length > 1 ? words[1] : "", cmd + " <id>");
+                    controller.resolveProposal(id, cmd.equals("approve"));
+                    out.println(cmd.equals("approve") ? "Approved " + id + "; it is now lore." : "Rejected " + id + ".");
+                }
                 case "lore" -> lore(sub, rest);
                 case "char" -> character(sub, rest);
                 case "rel" -> relationship(sub);
@@ -134,8 +144,11 @@ public class StoryCLI implements StoryObserver {
     /** Observer: one status line after every change, so the user sees what the story now holds. */
     @Override
     public void onStoryChanged(StorySession session) {
+        int waiting = session.getPendingProposals().size();
         out.println("[" + session.getId() + ": " + session.getLoreBook().size() + " lore, "
-                + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns]");
+                + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns"
+                + (waiting == 0 ? "" : ", " + waiting + " lore proposal" + (waiting == 1 ? "" : "s")
+                + " waiting (type \"proposals\")") + "]");
     }
 
     // ---- scenario and pivotal events (F01, F05) ----
@@ -226,6 +239,21 @@ public class StoryCLI implements StoryObserver {
         for (Turn t : s.getTurns()) {
             out.println("> " + t.getModeName() + ": " + t.getUserInput());
             printTurn(t);
+        }
+    }
+
+    // ---- lore proposals (F07) ----
+
+    private void printProposals() {
+        List<LoreProposal> pending = controller.listPendingProposals();
+        if (pending.isEmpty()) {
+            out.println("No lore proposals waiting.");
+        }
+        for (LoreProposal p : pending) {
+            out.println(p.getId() + " " + p.getTitle() + ": " + p.getContent());
+        }
+        if (!pending.isEmpty()) {
+            out.println("Type \"approve <id>\" or \"reject <id>\".");
         }
     }
 

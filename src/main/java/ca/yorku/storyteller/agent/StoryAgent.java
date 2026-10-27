@@ -1,6 +1,7 @@
 package ca.yorku.storyteller.agent;
 
 import ca.yorku.storyteller.agent.tools.GetCharacterTool;
+import ca.yorku.storyteller.agent.tools.ProposeLoreTool;
 import ca.yorku.storyteller.agent.tools.SearchLoreTool;
 import ca.yorku.storyteller.agent.tools.ToolCall;
 import ca.yorku.storyteller.agent.tools.ToolRegistry;
@@ -63,6 +64,7 @@ public class StoryAgent {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
+        registry.register(new ProposeLoreTool());
         return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
     }
 

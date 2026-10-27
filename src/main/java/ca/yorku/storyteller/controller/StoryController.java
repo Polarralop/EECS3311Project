@@ -7,6 +7,7 @@ import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.agent.StoryModeStrategy;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.LoreProposal;
 import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Relationship;
 import ca.yorku.storyteller.model.Scenario;
@@ -32,7 +33,7 @@ import java.util.Map;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): resolveProposal(), requestEnding().
+ * <p>TODO (Stage 1 design): requestEnding() (F12).
  */
 public class StoryController {
 
@@ -149,7 +150,16 @@ public class StoryController {
             throw new IllegalArgumentException("Type something for the turn first.");
         }
         SubmitTurnCommand command = new SubmitTurnCommand(s, agent, input, mode(modeName));
-        history.run(command);
+        int proposalsBefore = s.getProposals().size();
+        try {
+            history.run(command);
+        } catch (RuntimeException e) {
+            // Proposals raised before the failure stay pending (as for an undone turn), so show them.
+            if (s.getProposals().size() != proposalsBefore) {
+                s.notifyObservers();
+            }
+            throw e;
+        }
         s.notifyObservers();
         return command.getResult();
     }
@@ -214,6 +224,30 @@ public class StoryController {
             throw new IllegalArgumentException("Unknown mode \"" + name + "\". Use " + String.join(", ", modeNames()) + ".");
         }
         return m;
+    }
+
+    // ---- lore proposals (F07) ----
+
+    /** The agent's proposals still waiting for the user, oldest first. */
+    public List<LoreProposal> listPendingProposals() {
+        return requireSession().getPendingProposals();
+    }
+
+    /**
+     * Applies the user's decision on a proposal: approved, it becomes a new lore entry; rejected, it is
+     * marked rejected and nothing is added. This is the only way agent-suggested lore reaches the lore book.
+     *
+     * @throws IllegalArgumentException if no pending proposal has that id, or the lore book refuses the
+     *                                  entry (for example its title was taken meanwhile); it stays pending
+     */
+    public void resolveProposal(String id, boolean approved) {
+        StorySession s = requireSession();
+        if (approved) {
+            s.approveProposal(id);
+        } else {
+            s.rejectProposal(id);
+        }
+        s.notifyObservers();
     }
 
     // ---- lore (F02) ----

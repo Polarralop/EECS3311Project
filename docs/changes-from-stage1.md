@@ -98,7 +98,7 @@ Template:
 
 ## F04/F10: Turn commands and retry details
 - Original (Stage 1): `SubmitTurnCommand(input, mode, plotBefore, result)` with `execute`, `undo`, `getInput`; `CommandHistory.run/undoLast/canUndo`; `StoryController.retryTurn()` calls `undoLast()`, reads the input and runs a new command.
-- Implemented: `SubmitTurnCommand(session, agent, input, mode)` also has `getMode()` and `getResult()`, and if the agent fails it puts the plot copy back before passing the error on (a tool call may have changed the plot mid-turn), so a failed turn leaves no trace. `CommandHistory` gains `latest(type)` and `peekLast()`. `retryTurn()` finds the latest `SubmitTurnCommand`, undoes any edits made to that turn after it, undoes the turn and runs a new command with the same input and mode; the front ends are notified even when the retry fails, because the turn is gone either way. `StoryController` gains `modeNames()` and `isStarted()`, and turns need a started story (a scenario).
+- Implemented: `SubmitTurnCommand(session, agent, input, mode)` also has `getMode()` and `getResult()`, and if the agent fails it puts the plot copy back before passing the error on (a tool call may have changed the plot mid-turn), so a failed turn adds no turn and changes no events; lore proposals it raised stay pending, as for an undone turn (F07). `CommandHistory` gains `latest(type)` and `peekLast()`. `retryTurn()` finds the latest `SubmitTurnCommand`, undoes any edits made to that turn after it, undoes the turn and runs a new command with the same input and mode; the front ends are notified even when the retry fails, because the turn is gone either way. `StoryController` gains `modeNames()` and `isStarted()`, and turns need a started story (a scenario).
 - What changed and why: Stage 1 assumed the last command is always the turn, but after an edit (F10) the last command is the `EditTurnCommand`; regenerating the turn must discard the edit too. `getMode()` is how retry reuses the same strategy.
 - How the user need is still met: undo removes the turn and restores the events; retry regenerates it from the same input; a failed retry leaves the turn undone and the front end shows the input again.
 - Affected use cases / classes / methods / patterns: UC04, UC06; `SubmitTurnCommand`, `CommandHistory`, `StoryController`, `StoryCLI`; Command, Strategy.
@@ -113,3 +113,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC06; `EditTurnCommand`, `StoryController`, `StoryCLI`; Command.
 - Diagram to update: `figures/class-diagram/03-controller.png` (EditTurnCommand fields).
 - Commit(s): feat(controller): edit a past turn with EditTurnCommand
+
+## F07: Proposal checks and the pending list
+- Original (Stage 1): `ProposeLoreTool.execute(args, session)` checks that the title and content are present and calls `StorySession.addProposal`; `StoryController.resolveProposal(id, approved)`; the front end calls `showProposal(proposal)`.
+- Implemented: as designed, plus: the tool refuses a title that the lore book or another pending proposal already has (the model is told to read the existing entry instead), and `StoryController.listPendingProposals()` gives the front ends the list to show. When a proposal raised during a turn is followed by a failed model call, the front ends are still notified so the proposal appears. The front ends redraw the list from the session in `onStoryChanged` rather than through a separate `showProposal` call.
+- What changed and why: without the title check the model tends to re-propose facts it has just looked up, and approval would then fail on the lore book's duplicate-title rule anyway. Redrawing from the session is how every other list in the views already works (Observer).
+- How the user need is still met: the agent proposes, the user approves or rejects each proposal, and only approved proposals become lore.
+- Affected use cases / classes / methods / patterns: UC05; `ProposeLoreTool`, `StoryController`, `StoryCLI`; Observer, MVC.
+- Diagram to update: SD07 (no showProposal call; the list is redrawn on notify).
+- Commit(s): feat(tools): raise lore proposals and resolve them in StoryController
