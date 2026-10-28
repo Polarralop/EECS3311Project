@@ -59,3 +59,66 @@ Template:
 - Affected use cases / classes / methods / patterns: UC02, UC03, UC07; `StoryController`, `StoryCLI`; MVC.
 - Diagram to update: `figures/class-diagram/03-controller.png`; SD03 and SD09 show `showError` called by the controller.
 - Commit(s): feat(controller): expose lore, characters and save/load in StoryCLI
+
+## F04: Tool types carry what the agent loop needs
+- Original (Stage 1): `AgentTool` has `getName()`, `getSchema()` and `execute(args, session)`; `ToolCall(toolName, arguments)`; `ToolResult(success, content)`; `ToolRegistry.schemas(): List<String>`.
+- Implemented: `AgentTool` also has `getDescription()` (the text that tells the model when to use the tool). `ToolCall` is a record with the model's call `id` as well, so each result can be matched to its call. `ToolResult` is a record with `loreIds`, the lore entries the result showed the model, which is how a turn records the lore it used. `ToolRegistry.schemas()` returns `List<LLMToolSpec>` (name, description, JSON Schema) instead of bare schema strings. The registry reads each tool's `required` arguments from its schema and rejects a call that is missing one before the tool runs; an unknown tool or a tool that throws becomes a failed `ToolResult`, never an exception.
+- What changed and why: the Messages API needs a description and an id per tool call, and the F04 output "a record of which lore entries were used" needs the tool result to say which entries it returned. `LLMToolSpec` already existed in `llm` (see the Adapter entry), so the registry hands the agent ready-made specs.
+- How the user need is still met: the agent still reaches the story only through validated tool calls, and an invalid request is reported back to the agent while the turn continues (UC04 4b).
+- Affected use cases / classes / methods / patterns: UC04; `AgentTool`, `ToolCall`, `ToolResult`, `ToolRegistry`, `SearchLoreTool`, `GetCharacterTool`; Facade (subsystem).
+- Diagram to update: `figures/class-diagram/07-agent-tools.png`.
+- Commit(s): feat(tools): register SearchLoreTool and GetCharacterTool in ToolRegistry
+
+## F04/F06: Steering guidance is built without a separate model call
+- Original (Stage 1): during a turn, `PlotPlanner.planStep(session, input)` sends the input, the recent story and the next pending event to the model and returns guidance (continue, nudge or revise), which then goes into the narration request.
+- Implemented: `planStep` builds the guidance from the plot itself: how many events are reached, the next pending event, and an instruction to nudge back gradually; it returns an empty string when the story has no plan and a "bring the threads together" note when every event is reached. The narration call receives it in a section marked hidden, and that same call decides whether to continue, nudge or (with `UpdatePlotTool`, F06) revise.
+- What changed and why: a second model call per turn would double the cost and latency of every turn for a decision the narrating model can make itself while it already has the guidance, the input and the story in front of it. The decision is still the model's, so F06 stays an AI feature.
+- How the user need is still met: the story is still steered towards the hidden events, and the events are still never shown to the user.
+- Affected use cases / classes / methods / patterns: UC04 step 6; `PlotPlanner.planStep`, `StoryAgent.takeTurn`; Facade.
+- Diagram to update: SD05 (no model call inside planStep).
+- Commit(s): feat(agent): run the tool-use loop in StoryAgent.takeTurn
+
+## F04: StoryAgent wiring and the turn loop limit
+- Original (Stage 1): `StoryAgent` composes `PlotPlanner`, `ConsistencyChecker` and `MemoryManager` and uses `ToolRegistry` and `LLMClient`; `runToolLoop(request, session): LLMResponse` repeats while the response has tool calls.
+- Implemented: `StoryAgent(llm, tools, planner, memory)` plus `StoryAgent.create(llm)`, which registers the standard tools. `runToolLoop(request, session, usedLore)` also collects the lore ids of successful lookups, and stops after 8 model calls with an error so a model that keeps calling tools cannot loop forever. The system prompt is read from `src/main/resources/prompts/system.txt`. `ConsistencyChecker` is added to the constructor when F08 is built.
+- What changed and why: the loop needs a bound; recording the lore used is the F04 output "a record on the turn of which lore entries were used".
+- How the user need is still met: as designed; a turn that cannot finish shows a message and adds nothing (UC04 7a).
+- Affected use cases / classes / methods / patterns: UC04; `StoryAgent`; Facade, Strategy.
+- Diagram to update: `figures/class-diagram/06-agent.png`.
+- Commit(s): feat(agent): run the tool-use loop in StoryAgent.takeTurn
+
+## F01/F05: Starting a story keeps lore prepared beforehand
+- Original (Stage 1): `StoryController.startStory(scenario, plotBasis)` checks the mandatory fields, has the events planned and creates the `StorySession` that holds the scenario; the GUI reaches it from a plus button in a story list.
+- Implemented: `startStory` calls the new `Scenario.readyToStart()` (premise and setting mandatory; an empty title becomes the first words of the premise), then `StoryAgent.planPlot`, and only then changes anything. If the open session is empty and not started (created with `new`, possibly with lore and characters added), the scenario and plot are put on it; otherwise a new session is created. `StoryController` now takes the `StoryAgent` in its constructor, and `isStarted()` tells the front ends whether turns are possible. The front ends build the controller through `StoryCLI.createController()`, which reads `.env`; without an API key the app still opens and model features report the missing key.
+- What changed and why: week 1 already let the user add lore and characters to a session before any scenario exists (F02 and F03 do not need one), so starting the story must not throw that preparation away. Planning before any change means a failed plan leaves everything as it was (F05: "the story is not started").
+- How the user need is still met: the user still writes the scenario, optionally a plot basis, and starts; the plan stays hidden.
+- Affected use cases / classes / methods / patterns: UC01; `StoryController`, `Scenario`, `StoryAgent`, `PlotPlanner`, `StoryCLI`, `StoryGUI`; Facade, MVC.
+- Diagram to update: `figures/class-diagram/03-controller.png` (constructor, isStarted), `04-model-story-and-lore.png` (readyToStart); SD02 (session reused when empty).
+- Commit(s): feat(agent): plan hidden pivotal events before the story starts
+
+## F04/F10: Turn commands and retry details
+- Original (Stage 1): `SubmitTurnCommand(input, mode, plotBefore, result)` with `execute`, `undo`, `getInput`; `CommandHistory.run/undoLast/canUndo`; `StoryController.retryTurn()` calls `undoLast()`, reads the input and runs a new command.
+- Implemented: `SubmitTurnCommand(session, agent, input, mode)` also has `getMode()` and `getResult()`, and if the agent fails it puts the plot copy back before passing the error on (a tool call may have changed the plot mid-turn), so a failed turn adds no turn and changes no events; lore proposals it raised stay pending, as for an undone turn (F07). `CommandHistory` gains `latest(type)` and `peekLast()`. `retryTurn()` finds the latest `SubmitTurnCommand`, undoes any edits made to that turn after it, undoes the turn and runs a new command with the same input and mode; the front ends are notified even when the retry fails, because the turn is gone either way. `StoryController` gains `modeNames()` and `isStarted()`, and turns need a started story (a scenario).
+- What changed and why: Stage 1 assumed the last command is always the turn, but after an edit (F10) the last command is the `EditTurnCommand`; regenerating the turn must discard the edit too. `getMode()` is how retry reuses the same strategy.
+- How the user need is still met: undo removes the turn and restores the events; retry regenerates it from the same input; a failed retry leaves the turn undone and the front end shows the input again.
+- Affected use cases / classes / methods / patterns: UC04, UC06; `SubmitTurnCommand`, `CommandHistory`, `StoryController`, `StoryCLI`; Command, Strategy.
+- Diagram to update: `figures/class-diagram/03-controller.png`; SD08 (retry undoes edits first).
+- Commit(s): feat(controller): submit turns through SubmitTurnCommand and CommandHistory
+
+## F10: A loaded turn can be edited
+- Original (Stage 1): the Undo, Retry and Edit buttons are available only while `CommandHistory.canUndo()` is true, so none of them work right after a load; `EditTurnCommand(newNarration, oldNarration)`.
+- Implemented: `StoryController.editTurn(newNarration)` works whenever the story has a turn, including right after a load; the edit itself is then in the history and can be undone. Undo and retry still need a turn taken since the story was opened, because the history is not saved. `EditTurnCommand(session, newNarration)` keeps the edited `Turn` and its `oldNarration`.
+- What changed and why: replacing text needs nothing that was lost at load time (no plot copy, no original input), so there is no reason to forbid it, and fixing the last paragraph of a story you just reopened is a common need.
+- How the user need is still met: edit, undo of the edit, and the empty-text and cancel cases behave as in UC06.
+- Affected use cases / classes / methods / patterns: UC06; `EditTurnCommand`, `StoryController`, `StoryCLI`; Command.
+- Diagram to update: `figures/class-diagram/03-controller.png` (EditTurnCommand fields).
+- Commit(s): feat(controller): edit a past turn with EditTurnCommand
+
+## F07: Proposal checks and the pending list
+- Original (Stage 1): `ProposeLoreTool.execute(args, session)` checks that the title and content are present and calls `StorySession.addProposal`; `StoryController.resolveProposal(id, approved)`; the front end calls `showProposal(proposal)`.
+- Implemented: as designed, plus: the tool refuses a title that the lore book or another pending proposal already has (the model is told to read the existing entry instead), and `StoryController.listPendingProposals()` gives the front ends the list to show. When a proposal raised during a turn is followed by a failed model call, the front ends are still notified so the proposal appears. The front ends redraw the list from the session in `onStoryChanged` rather than through a separate `showProposal` call.
+- What changed and why: without the title check the model tends to re-propose facts it has just looked up, and approval would then fail on the lore book's duplicate-title rule anyway. Redrawing from the session is how every other list in the views already works (Observer).
+- How the user need is still met: the agent proposes, the user approves or rejects each proposal, and only approved proposals become lore.
+- Affected use cases / classes / methods / patterns: UC05; `ProposeLoreTool`, `StoryController`, `StoryCLI`; Observer, MVC.
+- Diagram to update: SD07 (no showProposal call; the list is redrawn on notify).
+- Commit(s): feat(tools): raise lore proposals and resolve them in StoryController

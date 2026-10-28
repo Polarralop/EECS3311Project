@@ -2,6 +2,7 @@ package ca.yorku.storyteller.controller;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Optional;
 
 /**
  * Keeps the executed turn commands so the most recent one can be undone. Starts empty after a load.
@@ -32,6 +33,16 @@ public class CommandHistory {
         StoryCommand command = done.pop();
         command.undo();
         return command;
+    }
+
+    /** The most recent command of the given type that can still be undone, if any. */
+    public <T extends StoryCommand> Optional<T> latest(Class<T> type) {
+        return done.stream().filter(type::isInstance).map(type::cast).findFirst();
+    }
+
+    /** The command {@link #undoLast()} would undo next, if any. */
+    public Optional<StoryCommand> peekLast() {
+        return Optional.ofNullable(done.peek());
     }
 
     public boolean canUndo() {

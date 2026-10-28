@@ -6,5 +6,6 @@ package ca.yorku.storyteller.agent.tools;
  * <p>Features: F06.
  * <p>TODO (Stage 1 design): execute().
  */
-public class UpdatePlotTool implements AgentTool {
+// TODO: implements AgentTool once execute() is written (see the Stage 2 build order).
+public class UpdatePlotTool {
 }

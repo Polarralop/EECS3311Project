@@ -1,5 +1,8 @@
 package ca.yorku.storyteller.controller;
 
+import ca.yorku.storyteller.model.StorySession;
+import ca.yorku.storyteller.model.Turn;
+
 /**
  * Replaces the text of the latest turn and can restore the original.
  *
@@ -8,14 +11,36 @@ package ca.yorku.storyteller.controller;
  */
 public class EditTurnCommand implements StoryCommand {
 
-    // TODO (F10, week 2): implement; nothing creates this command yet.
-    @Override
-    public void execute() {
-        throw new UnsupportedOperationException("Not implemented yet");
+    private final StorySession session;
+    private final String newNarration;
+    private Turn turn;
+    private String oldNarration;
+
+    public EditTurnCommand(StorySession session, String newNarration) {
+        this.session = session;
+        this.newNarration = newNarration;
     }
 
+    /**
+     * Remembers the latest turn's narration and replaces it.
+     *
+     * @throws IllegalStateException if the story has no turns
+     * @throws IllegalArgumentException if the new text is empty; nothing changes
+     */
+    @Override
+    public void execute() {
+        turn = session.lastTurn().orElseThrow(() -> new IllegalStateException("There is no turn to edit."));
+        oldNarration = turn.getNarration();
+        turn.setNarration(newNarration);
+    }
+
+    /** Puts the original narration back. */
     @Override
     public void undo() {
-        throw new UnsupportedOperationException("Not implemented yet");
+        turn.setNarration(oldNarration);
+    }
+
+    public String getOldNarration() {
+        return oldNarration;
     }
 }

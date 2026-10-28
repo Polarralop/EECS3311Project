@@ -2,15 +2,22 @@ package ca.yorku.storyteller.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ca.yorku.storyteller.llm.LLMException;
+import ca.yorku.storyteller.llm.LLMResponse;
 import ca.yorku.storyteller.model.Character;
+import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
+import ca.yorku.storyteller.agent.StoryAgent;
+import ca.yorku.storyteller.llm.FakeLLMClient;
 import ca.yorku.storyteller.ui.StoryObserver;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,8 +26,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Tests for the lore, character and save/load paths of {@link StoryController}. */
+/** Tests for {@link StoryController}, with FakeLLMClient for every model call. */
 class StoryControllerTest {
+
+    /** Scripted model; tests never make live calls. */
+    private final FakeLLMClient llm = new FakeLLMClient();
 
     @TempDir
     Path dir;
@@ -31,7 +41,7 @@ class StoryControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new StoryController(new JsonSessionRepository(dir));
+        controller = new StoryController(new JsonSessionRepository(dir), StoryAgent.create(llm));
         controller.addObserver(recorder);
     }
 
@@ -156,6 +166,73 @@ class StoryControllerTest {
         StorySession current = controller.newSession();
         assertThrows(IllegalArgumentException.class, () -> controller.loadSession("missing"));
         assertSame(current, controller.getSession());
+    }
+
+    // ---- start a story (F01, F05) ----
+
+    private static final String PLAN = "{\"events\": [\"The letter is stolen.\", \"The guild burns.\"]}";
+
+    private static Scenario scenario(String title) {
+        return new Scenario(title, "A courier carries a forbidden letter.", "grim", "A city under grey snow", "");
+    }
+
+    @Test
+    void startStoryPlansTheHiddenEventsAndKeepsPreparedLore() {
+        StorySession prepared = controller.newSession();
+        controller.saveLoreEntry(new LoreEntry(null, "Ashfall", "A city.", List.of(), true));
+        notifications.clear();
+        llm.enqueue(LLMResponse.ofText(PLAN));
+
+        controller.startStory(scenario("Ashfall"), "a betrayal");
+
+        assertSame(prepared, controller.getSession());
+        assertTrue(controller.isStarted());
+        assertEquals("Ashfall", prepared.getScenario().getTitle());
+        assertEquals(2, prepared.getPlot().getEvents().size());
+        assertEquals("a betrayal", prepared.getPlot().getBasis());
+        assertEquals(1, prepared.getLoreBook().size());
+        assertEquals(1, notifications.size());
+    }
+
+    @Test
+    void startStoryWithoutAnOpenSessionOrAfterAStartedOneCreatesANewSession() {
+        llm.enqueue(LLMResponse.ofText(PLAN)).enqueue(LLMResponse.ofText(PLAN));
+        controller.startStory(scenario("First"), "");
+        StorySession first = controller.getSession();
+        controller.startStory(scenario("Second"), "");
+        assertNotSame(first, controller.getSession());
+        assertEquals("Second", controller.getSession().getScenario().getTitle());
+        assertNotEquals(first.getId(), controller.getSession().getId());
+    }
+
+    @Test
+    void anEmptyTitleIsMadeFromThePremise() {
+        llm.enqueue(LLMResponse.ofText(PLAN));
+        controller.startStory(scenario(""), "");
+        assertEquals("A courier carries a forbidden letter", controller.getSession().getScenario().getTitle());
+    }
+
+    @Test
+    void missingPremiseOrSettingIsRejectedBeforeAnyModelCall() {
+        controller.newSession();
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.startStory(new Scenario("T", "", "", "A city", ""), ""));
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.startStory(new Scenario("T", "A premise", "", " ", ""), ""));
+        assertTrue(llm.getRequests().isEmpty());
+        assertFalse(controller.isStarted());
+    }
+
+    @Test
+    void aFailedPlanStartsNothing() {
+        StorySession open = controller.newSession();
+        notifications.clear();
+        llm.enqueue(LLMResponse.ofText("no plan"));
+        assertThrows(LLMException.class, () -> controller.startStory(scenario("T"), ""));
+        assertSame(open, controller.getSession());
+        assertNull(open.getScenario());
+        assertNull(open.getPlot());
+        assertTrue(notifications.isEmpty());
     }
 
     private static CommandHistory historyOf(StoryController c) {
