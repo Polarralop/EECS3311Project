@@ -165,6 +165,51 @@ class StoryAgentTest {
         assertTrue(llm.getRequests().isEmpty());
     }
 
+    // ---- ending (F12) ----
+
+    @Test
+    void theEndingDrawsOnThePlanTheLoreAndTheStorySoFar() {
+        Plot plot = new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."),
+                new PivotalEvent("E2", "The guild burns.")));
+        plot.markReached("E1");
+        plot.markReached("E2");
+        session.setPlot(plot);
+        session.addTurn(new Turn(1, "Do", "run", "Mira runs from the fire.", List.of(), List.of()));
+        assertTrue(agent.readyToEnd(session));
+        llm.enqueue(LLMResponse.ofText("  Dawn finds Mira at the gate.  "));
+
+        assertEquals("Dawn finds Mira at the gate.", agent.generateEnding(session));
+        LLMRequest r = llm.getRequests().get(0);
+        String sent = r.getMessages().get(0).getText();
+        assertTrue(sent.contains("[happened] The letter is stolen.\n[happened] The guild burns."));
+        assertTrue(sent.contains("Every pivotal event has happened"));
+        assertTrue(sent.contains("[canon] Ashfall: A city under grey snow."));
+        assertTrue(sent.contains("Turn 1 (Do): run\nMira runs from the fire."));
+        assertTrue(r.getTools().isEmpty());
+        assertTrue(r.getSystemPrompt().contains("closing passage"));
+        assertTrue(session.getEnding().isEmpty(), "the agent returns the ending; the controller stores it");
+    }
+
+    @Test
+    void anEarlyEndingIsWrittenFromTheCurrentPoint() {
+        session.setPlot(new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."))));
+        assertFalse(agent.readyToEnd(session));
+        llm.enqueue(LLMResponse.ofText("It ends quietly."));
+        agent.generateEnding(session);
+        String sent = llm.getRequests().get(0).getMessages().get(0).getText();
+        assertTrue(sent.contains("[did not happen] The letter is stolen."));
+        assertTrue(sent.contains("before every pivotal event happened"));
+    }
+
+    @Test
+    void aRefusedEmptyOrFailedEndingIsAnError() {
+        llm.enqueue(LLMResponse.ofRefusal()).enqueue(LLMResponse.ofText(" "))
+                .enqueueFailure(new LLMException("Could not reach Claude."));
+        assertTrue(assertThrows(LLMException.class, () -> agent.generateEnding(session)).getMessage().contains("declined"));
+        assertThrows(LLMException.class, () -> agent.generateEnding(session));
+        assertEquals("Could not reach Claude.", assertThrows(LLMException.class, () -> agent.generateEnding(session)).getMessage());
+    }
+
     // ---- scenario drafts (F01) ----
 
     @Test

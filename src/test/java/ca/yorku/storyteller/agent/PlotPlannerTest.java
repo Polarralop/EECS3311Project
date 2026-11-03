@@ -118,4 +118,17 @@ class PlotPlannerTest {
         assertTrue(planner.planStep(s, "x").startsWith("Every pivotal event has been reached."));
         assertTrue(llm.getRequests().isEmpty(), "planStep makes no model call");
     }
+
+    @Test
+    void readyToEndOnceNoEventIsPendingAndOneWasReached() {
+        assertFalse(planner.readyToEnd(null), "no plan, nothing to end on");
+        Plot plot = new Plot("", List.of(new PivotalEvent("E1", "A"), new PivotalEvent("E2", "B")));
+        assertFalse(planner.readyToEnd(plot));
+        plot.markReached("E1");
+        assertFalse(planner.readyToEnd(plot));
+        plot.replacePending(List.of(new PivotalEvent("E3", "C")));
+        assertFalse(planner.readyToEnd(plot), "E2 was dropped, but E3 is pending");
+        plot.markReached("E3");
+        assertTrue(planner.readyToEnd(plot));
+    }
 }

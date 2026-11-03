@@ -15,6 +15,9 @@ import ca.yorku.storyteller.llm.LLMResponse;
 import ca.yorku.storyteller.llm.LLMToolCall;
 import ca.yorku.storyteller.llm.LLMToolResult;
 import ca.yorku.storyteller.model.Character;
+import ca.yorku.storyteller.model.EventStatus;
+import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.PivotalEvent;
 import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
@@ -37,7 +40,6 @@ import java.util.Set;
  *
  * <p>Features: F01 F04-F09 F11 F12.
  * <p>Patterns: Facade (Facade), Strategy (Context).
- * <p>TODO (Stage 1 design): generateEnding() (F12).
  */
 public class StoryAgent {
 
@@ -106,6 +108,56 @@ public class StoryAgent {
      */
     public Plot planPlot(Scenario scenario, String basis) {
         return planner.createPlot(scenario, basis);
+    }
+
+    /** True when every pivotal event has been reached, so the agent suggests ending the story (F12). */
+    public boolean readyToEnd(StorySession session) {
+        return planner.readyToEnd(session.getPlot());
+    }
+
+    /**
+     * Writes the closing passage from the pivotal events, the lore and the story so far (F12). If events
+     * are still pending, the ending is written from the current point and they need not happen. The
+     * text is returned; the caller stores it.
+     *
+     * @throws LLMException if Claude declines, fails or writes nothing
+     */
+    public String generateEnding(StorySession session) {
+        boolean complete = planner.readyToEnd(session.getPlot());
+        StringBuilder sb = new StringBuilder();
+        if (session.getScenario() != null) {
+            sb.append("## Scenario\n").append(session.getScenario().describe()).append("\n\n");
+        }
+        if (session.getPlot() != null) {
+            sb.append("## The hidden plan\n");
+            for (PivotalEvent e : session.getPlot().getEvents()) {
+                if (e.getStatus() != EventStatus.DROPPED) {
+                    sb.append(e.isReached() ? "[happened] " : "[did not happen] ").append(e.getDescription()).append('\n');
+                }
+            }
+            sb.append(complete ? "Every pivotal event has happened: resolve the story they built.\n\n"
+                    : "The user chose to end the story before every pivotal event happened. End it from where it "
+                    + "stands; do not rush the remaining events in.\n\n");
+        }
+        if (session.getLoreBook().size() > 0) {
+            sb.append("## Lore\n");
+            for (LoreEntry e : session.getLoreBook().getAll()) {
+                sb.append(e.isPinned() ? "[canon] " : "").append(e.getTitle()).append(": ")
+                        .append(e.getContent().strip()).append('\n');
+            }
+            sb.append('\n');
+        }
+        String context = memory.buildContext(session);
+        sb.append("## Story so far\n").append(context.isEmpty() ? "No turns yet." : context);
+        LLMResponse reply = llm.generate(new LLMRequest(loadPrompt("ending"), List.of(LLMMessage.user(sb.toString())),
+                List.of(), 4_000));
+        if (reply.isRefused()) {
+            throw new LLMException("Claude declined to write an ending. Try again, or take another turn first.");
+        }
+        if (reply.getText().isBlank()) {
+            throw new LLMException("Claude returned no ending. Try again.");
+        }
+        return reply.getText().strip();
     }
 
     /**

@@ -158,3 +158,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC07 1a, 1d; `StoryController.loadSession`, `StoryAgent.recap`, `MemoryManager.recap`, `StoryGUI` (recap panel, showRecap), `StoryCLI` (load); Facade, MVC.
 - Diagram to update: `figures/class-diagram/02-ui.png` (StoryGUI.showRecap), `06-agent.png` (recap methods); SD09 (recap call replaces describe).
 - Commit(s): feat(controller): show a model-written recap when a story is loaded
+
+## F12: The ending is stored on the session
+- Original (Stage 1): `StoryAgent.generateEnding(session)` returns the closing passage to the controller and the front end shows it at the end of the story; `PlotPlanner.readyToEnd(plot)` uses `Plot.isComplete()`. The model has no field for the ending.
+- Implemented: `StorySession` gains `ending` with `getEnding()`, `setEnding(text)` and `isEnded()`, so the ending is saved and loaded with the story (F11). `StoryAgent.readyToEnd(session)` is the agent's own entry point to `PlotPlanner.readyToEnd`, so the controller does not reach past the facade. `generateEnding` sends the plan with each event marked as happened or not (dropped events left out), says whether the plan was completed or the user ended early, and adds every lore entry and the story context.
+- What changed and why: UC08's postcondition is "the story has a closing passage", which has to survive a save and load like every other part of the story. Marking the events lets an early ending avoid narrating events that never happened.
+- How the user need is still met: the agent writes an ending from the pivotal events, the lore and the story so far, and the ending stays with the story.
+- Affected use cases / classes / methods / patterns: UC08; `StorySession`, `StoryAgent`, `PlotPlanner`, `prompts/ending.txt`; Facade, MVC (model).
+- Diagram to update: `figures/class-diagram/04-model-story-and-lore.png` (ending), `06-agent.png` (readyToEnd, generateEnding); SD10.
+- Commit(s): feat(agent): write the story's ending in StoryAgent.generateEnding

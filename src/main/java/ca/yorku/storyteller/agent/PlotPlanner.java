@@ -19,7 +19,6 @@ import java.util.Optional;
  * Creates the pivotal events and decides each turn whether to steer back or revise the plan.
  *
  * <p>Features: F05 F06 F12.
- * <p>TODO (Stage 1 design): readyToEnd() (F12).
  * <p>Patterns: Facade (Subsystem).
  */
 public class PlotPlanner {
@@ -113,5 +112,13 @@ public class PlotPlanner {
                 .append("\". If the user's choices have made the pending events impossible or pointless, call ")
                 .append("update_plot with action \"revise\" and new events that fit what has happened.");
         return sb.toString();
+    }
+
+    /**
+     * True when there is nothing left to steer towards: every pivotal event is reached or dropped, with
+     * at least one reached (F12: the agent suggests an ending). False for a story without a plan.
+     */
+    public boolean readyToEnd(Plot plot) {
+        return plot != null && plot.isComplete();
     }
 }
