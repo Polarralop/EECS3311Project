@@ -104,6 +104,30 @@ class StoryTurnTest {
     }
 
     @Test
+    void theModelSteersThePlotThroughUpdatePlotAndUndoPutsItBack() {
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief vanishes with the letter."));
+        controller.submitTurn("guard the letter", "do");
+        assertEquals(EventStatus.REACHED, session.getPlot().getEvents().get(0).getStatus());
+        String guidance = llm.getRequests().get(1).getMessages().get(0).getText();
+        assertTrue(guidance.contains("Next pivotal event (E1)"), "the next event is in the hidden guidance");
+
+        controller.undoTurn();
+        assertEquals(EventStatus.PENDING, session.getPlot().getEvents().get(0).getStatus());
+    }
+
+    @Test
+    void aRevisionDuringAFailedTurnIsRolledBack() {
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "revise", "new_events", "[\"The courier turns thief.\"]")))))
+                .enqueueFailure(new LLMException("overloaded"));
+        assertThrows(LLMException.class, () -> controller.submitTurn("burn the letter", "do"));
+        assertEquals(2, session.getPlot().getEvents().size());
+        assertTrue(session.getPlot().getEvents().stream().allMatch(e -> e.getStatus() == EventStatus.PENDING));
+    }
+
+    @Test
     void retryReplacesTheLastTurnFromTheSameInputAndMode() {
         llm.enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofText("Second."));
         controller.submitTurn("open the gate", "say");

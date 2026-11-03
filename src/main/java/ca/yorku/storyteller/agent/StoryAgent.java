@@ -6,6 +6,7 @@ import ca.yorku.storyteller.agent.tools.SearchLoreTool;
 import ca.yorku.storyteller.agent.tools.ToolCall;
 import ca.yorku.storyteller.agent.tools.ToolRegistry;
 import ca.yorku.storyteller.agent.tools.ToolResult;
+import ca.yorku.storyteller.agent.tools.UpdatePlotTool;
 import ca.yorku.storyteller.llm.LLMClient;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.llm.LLMMessage;
@@ -65,6 +66,7 @@ public class StoryAgent {
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
         registry.register(new ProposeLoreTool());
+        registry.register(new UpdatePlotTool());
         return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
     }
 

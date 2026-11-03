@@ -122,3 +122,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC05; `ProposeLoreTool`, `StoryController`, `StoryCLI`; Observer, MVC.
 - Diagram to update: SD07 (no showProposal call; the list is redrawn on notify).
 - Commit(s): feat(tools): raise lore proposals and resolve them in StoryController
+
+## F06: UpdatePlotTool takes an action, and the guidance lists every pending event
+- Original (Stage 1): `UpdatePlotTool.execute(args, session)` calls `Plot.markReached(eventId)` or `Plot.replacePending(events)`; `PlotPlanner.planStep(session, input)` returns guidance about the next pending event; a call naming an unknown event is a failed `ToolResult`.
+- Implemented: one `update_plot` tool with an `action` argument: `"reached"` with `event_id`, or `"revise"` with `new_events` (a JSON array; plain text with one event per line is accepted too). New events get the next free ids (E4, E5, ... after E3, dropped events included), a revision holds 1 to 6 events (`UpdatePlotTool.MAX_NEW_EVENTS`), and revising is refused once every event is reached, so the story moves to an ending (F12) instead of growing forever. An event reached out of order is accepted and the result says which earlier one is still pending. `planStep` now also lists the later pending events and tells the model when to call `update_plot`, because a revision has to know what it is replacing.
+- What changed and why: the Messages API gives the model one tool per name, and an `action` enum keeps both plot operations behind the single `UpdatePlotTool` class the design has. The limits keep a model from rewriting the plan into an endless story.
+- How the user need is still met: when the user goes off-script the narration nudges back or the plan is revised to fit; the events stay hidden in both front ends, and undo or a failed turn puts the plan back (F10).
+- Affected use cases / classes / methods / patterns: UC04 step 6; `UpdatePlotTool`, `PlotPlanner.planStep`, `StoryAgent.create` (registers the tool), `prompts/system.txt`; Facade (subsystem).
+- Diagram to update: `figures/class-diagram/07-agent-tools.png` (UpdatePlotTool implements AgentTool, MAX_NEW_EVENTS, parseEvents); SD05 (update_plot inside the tool loop).
+- Commit(s): feat(tools): steer the hidden plot with UpdatePlotTool

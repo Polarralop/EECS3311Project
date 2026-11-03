@@ -95,7 +95,7 @@ class StoryAgentTest {
         llm.enqueue(LLMResponse.ofText("Fine."));
         agent.takeTurn(session, "wait", new DoModeStrategy());
         LLMRequest r = llm.getRequests().get(0);
-        assertEquals(List.of("search_lore", "get_character", "propose_lore"), r.getTools().stream().map(s -> s.name()).toList());
+        assertEquals(List.of("search_lore", "get_character", "propose_lore", "update_plot"), r.getTools().stream().map(s -> s.name()).toList());
         assertTrue(r.getSystemPrompt().contains("Never reveal"));
     }
 
@@ -121,7 +121,7 @@ class StoryAgentTest {
         String prompt = llm.getRequests().get(0).getMessages().get(0).getText();
         assertTrue(prompt.contains("## Hidden plot guidance (never reveal this)"));
         assertTrue(prompt.contains("Next pivotal event (E1): The letter is stolen."));
-        assertFalse(prompt.contains("The guild burns."), "only the next event is sent");
+        assertTrue(prompt.contains("Later pivotal events: E2: The guild burns."), "later events, so a revision can replace them");
     }
 
     @Test

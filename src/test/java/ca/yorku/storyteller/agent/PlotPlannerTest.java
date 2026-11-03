@@ -1,6 +1,7 @@
 package ca.yorku.storyteller.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -93,13 +94,26 @@ class PlotPlannerTest {
     }
 
     @Test
-    void planStepNamesOnlyTheNextPendingEvent() {
+    void planStepListsThePendingEventsInOrder() {
+        StorySession s = new StorySession("s");
+        Plot plot = new Plot("", List.of(new PivotalEvent("E1", "A"), new PivotalEvent("E2", "B"),
+                new PivotalEvent("E3", "C")));
+        s.setPlot(plot);
+        String step = planner.planStep(s, "x");
+        assertTrue(step.contains("Next pivotal event (E1): A\nLater pivotal events: E2: B; E3: C"));
+        assertTrue(step.contains("update_plot with action \"revise\""));
+    }
+
+    @Test
+    void planStepNamesTheNextPendingEvent() {
         StorySession s = new StorySession("s");
         assertEquals("", planner.planStep(s, "x"));
         Plot plot = new Plot("", List.of(new PivotalEvent("E1", "A"), new PivotalEvent("E2", "B")));
         plot.markReached("E1");
         s.setPlot(plot);
         assertTrue(planner.planStep(s, "x").startsWith("Pivotal events reached so far: 1. Next pivotal event (E2): B"));
+        assertTrue(planner.planStep(s, "x").contains("call update_plot with action \"reached\" and event_id \"E2\""));
+        assertFalse(planner.planStep(s, "x").contains("Later pivotal events"), "E2 is the only one left");
         plot.markReached("E2");
         assertTrue(planner.planStep(s, "x").startsWith("Every pivotal event has been reached."));
         assertTrue(llm.getRequests().isEmpty(), "planStep makes no model call");
