@@ -281,7 +281,8 @@ class StoryGUITest {
         });
         startFromTheForm();
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
-                .enqueue(LLMResponse.ofText("Snow settles on the gate."));
+                .enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"));
         onEdt(() -> {
             gui.modeChoice.setSelectedItem("Say");
             gui.input.setText("Open up!");
@@ -291,6 +292,22 @@ class StoryGUITest {
         assertEquals("Ashfall", gui.usedLoreItems.get(0).getTitle());
         assertEquals("", gui.input.getText());
         assertTrue(gui.undo.isEnabled() && gui.retry.isEnabled() && gui.edit.isEnabled());
+    }
+
+    @Test
+    void warningsAppearUnderTheTurnsNarration() throws Exception {
+        onEdt(() -> {
+            controller.newSession();
+            controller.saveLoreEntry(new ca.yorku.storyteller.model.LoreEntry(null, "Orrin", "Orrin is dead.", List.of(), true));
+        });
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("Orrin waves."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": [{\"entry\": \"L1\", \"problem\": \"Orrin is dead.\"}]}"));
+        onEdt(() -> {
+            gui.input.setText("look");
+            gui.send.doClick();
+        });
+        assertTrue(gui.transcript.getText().endsWith("Orrin waves.\n\n[Warning: Contradicts L1 \"Orrin\" (canon): Orrin is dead.]"));
     }
 
     @Test

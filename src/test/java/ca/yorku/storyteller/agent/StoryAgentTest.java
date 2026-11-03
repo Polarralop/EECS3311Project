@@ -27,6 +27,9 @@ import org.junit.jupiter.api.Test;
 /** Tests for {@link StoryAgent}. Agent tests use FakeLLMClient, never live API calls. */
 class StoryAgentTest {
 
+    /** The consistency check's answer when the narration contradicts nothing (F08). */
+    static final LLMResponse CLEAN = LLMResponse.ofText("{\"contradictions\": []}");
+
     private FakeLLMClient llm;
     private StoryAgent agent;
     private StorySession session;
@@ -48,7 +51,7 @@ class StoryAgentTest {
 
     @Test
     void plainNarrationBecomesATurnWithNoLore() {
-        llm.enqueue(LLMResponse.ofText("  The gate creaks open.  "));
+        llm.enqueue(LLMResponse.ofText("  The gate creaks open.  ")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "open the gate", new DoModeStrategy());
         assertEquals(1, t.getNumber());
         assertEquals("Do", t.getModeName());
@@ -63,7 +66,7 @@ class StoryAgentTest {
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(
                         call("a", "search_lore", Map.of("query", "ashfall")),
                         call("b", "get_character", Map.of("name", "Mira")))))
-                .enqueue(LLMResponse.ofText("Snow settles on Mira's hood."));
+                .enqueue(LLMResponse.ofText("Snow settles on Mira's hood.")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "look around", new DoModeStrategy());
 
         assertEquals("Snow settles on Mira's hood.", t.getNarration());
@@ -82,7 +85,7 @@ class StoryAgentTest {
     @Test
     void anInvalidToolCallIsReportedToTheModelAndTheTurnContinues() {
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(call("x", "burn_city", Map.of()))))
-                .enqueue(LLMResponse.ofText("Nothing burns."));
+                .enqueue(LLMResponse.ofText("Nothing burns.")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "burn it", new DoModeStrategy());
         assertEquals("Nothing burns.", t.getNarration());
         LLMToolResult r = llm.getRequests().get(1).getMessages().get(2).getToolResults().get(0);
@@ -92,7 +95,7 @@ class StoryAgentTest {
 
     @Test
     void everyRequestCarriesTheToolsAndTheSystemPrompt() {
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "wait", new DoModeStrategy());
         LLMRequest r = llm.getRequests().get(0);
         assertEquals(List.of("search_lore", "get_character", "propose_lore", "update_plot"), r.getTools().stream().map(s -> s.name()).toList());
@@ -102,7 +105,7 @@ class StoryAgentTest {
     @Test
     void thePromptHoldsTheScenarioCharactersHistoryAndFramedInput() {
         session.addTurn(new Turn(1, "Say", "Hello", "The guard nods.", List.of(), List.of()));
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "Where is the guild?", new SayModeStrategy());
         String prompt = llm.getRequests().get(0).getMessages().get(0).getText();
         assertTrue(prompt.contains("Premise: A courier carries a forbidden letter."));
@@ -116,7 +119,7 @@ class StoryAgentTest {
     void theNextPendingEventIsSentAsHiddenGuidance() {
         session.setPlot(new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."),
                 new PivotalEvent("E2", "The guild burns."))));
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "walk", new DoModeStrategy());
         String prompt = llm.getRequests().get(0).getMessages().get(0).getText();
         assertTrue(prompt.contains("## Hidden plot guidance (never reveal this)"));

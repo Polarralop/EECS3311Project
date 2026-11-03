@@ -385,6 +385,12 @@ public class StoryGUI implements StoryObserver {
         for (Turn t : session.getTurns()) {
             sb.append("> ").append(t.getModeName()).append(": ").append(t.getUserInput()).append("\n\n")
                     .append(t.getNarration()).append("\n\n");
+            for (String w : t.getWarnings()) {
+                sb.append("[Warning: ").append(w).append("]\n");
+            }
+            if (!t.getWarnings().isEmpty()) {
+                sb.append('\n');
+            }
         }
         transcript.setText(sb.toString().strip());
         transcript.setCaretPosition(transcript.getDocument().getLength());

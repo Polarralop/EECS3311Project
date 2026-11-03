@@ -131,3 +131,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04 step 6; `UpdatePlotTool`, `PlotPlanner.planStep`, `StoryAgent.create` (registers the tool), `prompts/system.txt`; Facade (subsystem).
 - Diagram to update: `figures/class-diagram/07-agent-tools.png` (UpdatePlotTool implements AgentTool, MAX_NEW_EVENTS, parseEvents); SD05 (update_plot inside the tool loop).
 - Commit(s): feat(tools): steer the hidden plot with UpdatePlotTool
+
+## F08: The check takes the lore the turn used, and an edit clears the warnings
+- Original (Stage 1): `ConsistencyChecker.check(narration, session): List<String>` compares the narration with the pinned facts "together with the lore entries the turn used"; the agent stores the list in `Turn.warnings`; a failed check returns the turn "with a warning saying that it was not checked"; the front end shows warnings in `showNarration(turn)`.
+- Implemented: `check(narration, session, usedLoreIds)`: the ids of the entries looked up during the turn are passed in, because the session does not know them until the turn is added. The model answers with a JSON list of `{entry, problem}`; each becomes a warning such as `Contradicts L1 "Orrin" (canon): ...`, at most 5 per turn. A failed call, a refusal or an unreadable answer all give one warning starting "This turn was not checked against the lore". `StoryAgent` takes the checker in its constructor. `Turn.setWarnings` is added, and `EditTurnCommand` clears a turn's warnings when the user replaces its narration and restores them on undo. The front ends redraw the warnings from the turns in `onStoryChanged` rather than through a `showNarration` call.
+- What changed and why: the signature needs the used lore to do what the design describes. The warnings are about the agent's text; once the user has written their own, an old warning would point at words that are gone.
+- How the user need is still met: contradictions with pinned canon or the lore in play are flagged under the turn and never block it; the user can retry or edit (F10).
+- Affected use cases / classes / methods / patterns: UC04 steps 8, 8a, 8b; UC06 1b; `ConsistencyChecker`, `StoryAgent`, `Turn`, `EditTurnCommand`, `StoryCLI`, `StoryGUI`, `prompts/consistency-check.txt`; Facade, Command.
+- Diagram to update: `figures/class-diagram/06-agent.png` (check signature, constructor), `04-model-story-and-lore.png` (Turn.setWarnings), `03-controller.png` (EditTurnCommand.oldWarnings); SD06.
+- Commit(s): feat(agent): flag contradictions with pinned lore in ConsistencyChecker

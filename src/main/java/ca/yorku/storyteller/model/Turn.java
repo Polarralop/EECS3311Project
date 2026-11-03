@@ -64,7 +64,13 @@ public class Turn {
         return List.copyOf(usedLoreIds);
     }
 
+    /** Consistency warnings (F08): contradictions with the lore, or a note that the turn was not checked. */
     public List<String> getWarnings() {
         return List.copyOf(warnings);
+    }
+
+    /** Replaces the warnings (an edit clears them, its undo restores them; F10). */
+    public void setWarnings(List<String> warnings) {
+        this.warnings = new ArrayList<>(warnings == null ? List.of() : warnings);
     }
 }

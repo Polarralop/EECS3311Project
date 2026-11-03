@@ -145,8 +145,11 @@ class StoryCLITest {
     void turnsUndoAndRetryFromTheCli() {
         withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
                 .enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"))
                 .enqueue(LLMResponse.ofText("The guard nods."))
-                .enqueue(LLMResponse.ofText("The guard laughs instead."));
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"))
+                .enqueue(LLMResponse.ofText("The guard laughs instead."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"));
         Run r = started("""
                 lore add
                 Ashfall
@@ -170,6 +173,22 @@ class StoryCLITest {
         assertTrue(out.contains("Error: Usage: do <text>"));
         assertFalse(out.contains("The letter is stolen"), "the plan is never printed");
         assertTrue(r.controller().getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void consistencyWarningsArePrintedUnderTheNarration() {
+        withPlan().enqueue(LLMResponse.ofText("Orrin waves from the forge."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": [{\"entry\": \"L1\", \"problem\": \"Orrin died in the fire.\"}]}"));
+        Run r = started("""
+                lore add
+                Orrin
+                Orrin died in the fire.
+
+                y
+                do look at the forge
+                """);
+        assertTrue(r.output().contains("Orrin waves from the forge.\nWarning: Contradicts L1 \"Orrin\" (canon): Orrin died in the fire."));
+        assertEquals(1, r.controller().getSession().getTurns().size(), "the warning does not block the turn");
     }
 
     @Test

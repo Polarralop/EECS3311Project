@@ -50,24 +50,27 @@ public class StoryAgent {
     private final ToolRegistry tools;
     private final PlotPlanner planner;
     private final MemoryManager memory;
+    private final ConsistencyChecker checker;
     private final String systemPrompt;
 
-    public StoryAgent(LLMClient llm, ToolRegistry tools, PlotPlanner planner, MemoryManager memory) {
+    public StoryAgent(LLMClient llm, ToolRegistry tools, PlotPlanner planner, MemoryManager memory,
+                      ConsistencyChecker checker) {
         this.llm = llm;
         this.tools = tools;
         this.planner = planner;
         this.memory = memory;
+        this.checker = checker;
         this.systemPrompt = loadPrompt("system");
     }
 
-    /** An agent with the standard tools, planner and memory over the given model. */
+    /** An agent with the standard tools, planner, memory and consistency checker over the given model. */
     public static StoryAgent create(LLMClient llm) {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
         registry.register(new ProposeLoreTool());
         registry.register(new UpdatePlotTool());
-        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
+        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager(), new ConsistencyChecker(llm));
     }
 
     /**
@@ -107,8 +110,10 @@ public class StoryAgent {
 
     /**
      * Narrates one turn: frames the input with the mode, adds the story so far and the hidden plot
-     * guidance, then runs the tool-use loop until the model answers with narration. The turn is
-     * returned, not added; the caller (SubmitTurnCommand) adds it so it can be undone.
+     * guidance, then runs the tool-use loop until the model answers with narration. The narration is
+     * checked against the pinned and used lore (F08); contradictions become the turn's warnings and
+     * never block it. The turn is returned, not added; the caller (SubmitTurnCommand) adds it so it can
+     * be undone.
      *
      * @throws IllegalArgumentException if the input is empty
      * @throws LLMException if the model declines, fails or never finishes the narration
@@ -121,8 +126,10 @@ public class StoryAgent {
         LLMRequest request = new LLMRequest(systemPrompt, List.of(LLMMessage.user(prompt)), tools.schemas());
         Set<String> usedLore = new LinkedHashSet<>();
         LLMResponse reply = runToolLoop(request, session, usedLore);
-        return new Turn(session.nextTurnNumber(), mode.getName(), input.strip(), reply.getText().strip(),
-                List.copyOf(usedLore), List.of());
+        String narration = reply.getText().strip();
+        List<String> warnings = checker.check(narration, session, usedLore);
+        return new Turn(session.nextTurnNumber(), mode.getName(), input.strip(), narration,
+                List.copyOf(usedLore), warnings);
     }
 
     /**

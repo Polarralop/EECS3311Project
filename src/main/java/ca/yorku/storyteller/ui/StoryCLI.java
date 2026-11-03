@@ -223,6 +223,9 @@ public class StoryCLI implements StoryObserver {
             List<String> used = t.getUsedLoreIds().stream().map(this::loreLabel).toList();
             out.println("(Lore used: " + String.join(", ", used) + ")");
         }
+        for (String w : t.getWarnings()) {
+            out.println("Warning: " + w);
+        }
         out.println();
     }
 
