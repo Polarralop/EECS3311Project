@@ -5,6 +5,7 @@ import ca.yorku.storyteller.agent.InputModeStrategy;
 import ca.yorku.storyteller.agent.SayModeStrategy;
 import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.agent.StoryModeStrategy;
+import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.LoreProposal;
@@ -342,16 +343,26 @@ public class StoryController {
     }
 
     /**
-     * Loads a saved story and makes it current. The undo history starts empty.
+     * Loads a saved story and makes it current, then has the agent write a recap of the story so far
+     * (F09). The undo history starts empty. If the recap fails, the story is still loaded and the
+     * message says why there is no recap.
      *
-     * @return a short recap to show the user
+     * @return what to show the user: what was loaded, then the recap when the story has turns
      * @throws IllegalArgumentException if there is no such save; the current story stays open
+     * @throws java.io.UncheckedIOException if the save is damaged; the current story stays open
      */
     public String loadSession(String id) {
         StorySession loaded = repository.load(id);
         switchTo(loaded);
-        // TODO (F09): replace with StoryAgent.recap(session) once the agent is wired in.
-        return describe(loaded);
+        String loadedLine = describe(loaded);
+        if (loaded.getTurns().isEmpty()) {
+            return loadedLine;
+        }
+        try {
+            return loadedLine + "\n\nThe story so far: " + agent.recap(loaded);
+        } catch (LLMException e) {
+            return loadedLine + "\n\n(No recap this time: " + e.getMessage() + ")";
+        }
     }
 
     public List<String> listSessions() {

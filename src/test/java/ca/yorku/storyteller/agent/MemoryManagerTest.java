@@ -97,6 +97,34 @@ class MemoryManagerTest {
         assertEquals(1, s.getSummarizedUpTo());
     }
 
+    // ---- recap (F09) ----
+
+    @Test
+    void theRecapIsWrittenFromTheSummaryAndTheRecentTurns() {
+        FakeLLMClient llm = new FakeLLMClient().enqueue(LLMResponse.ofText(" Mira reached the gate. "));
+        StorySession s = withTurns(4);
+        s.setSummary("Mira left home.", 2);
+        assertEquals("Mira reached the gate.", new MemoryManager(llm, 2).recap(s));
+        String sent = llm.getRequests().get(0).getMessages().get(0).getText();
+        assertTrue(sent.contains("Summary of earlier events:\nMira left home.\n\nTurn 3 (Do)"));
+        assertTrue(llm.getRequests().get(0).getSystemPrompt().contains("reopen"));
+    }
+
+    @Test
+    void aStoryWithoutTurnsHasNoRecapAndNoCall() {
+        FakeLLMClient llm = new FakeLLMClient();
+        assertEquals("", new MemoryManager(llm).recap(new StorySession("s")));
+        assertTrue(llm.getRequests().isEmpty());
+    }
+
+    @Test
+    void aRefusedOrEmptyRecapIsAnError() {
+        FakeLLMClient llm = new FakeLLMClient().enqueue(LLMResponse.ofRefusal()).enqueue(LLMResponse.ofText(""));
+        MemoryManager memory = new MemoryManager(llm);
+        assertTrue(assertThrows(LLMException.class, () -> memory.recap(withTurns(1))).getMessage().contains("declined"));
+        assertThrows(LLMException.class, () -> memory.recap(withTurns(1)));
+    }
+
     @Test
     void theAgentSummarizesBeforeBuildingTheTurnsContext() {
         FakeLLMClient llm = new FakeLLMClient();

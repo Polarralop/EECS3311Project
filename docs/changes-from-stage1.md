@@ -149,3 +149,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04 steps 5 and 9a; `MemoryManager`, `StoryAgent`, `prompts/summarizer.txt`; Facade.
 - Diagram to update: `figures/class-diagram/06-agent.png` (MemoryManager constructor and llm field); SD05 and SD06 (summarizeIfNeeded moves before buildContext).
 - Commit(s): feat(agent): summarize older turns in MemoryManager
+
+## F09/F11: The recap is shown with what was loaded, in a panel on the Story tab
+- Original (Stage 1): `StoryController.loadSession(id)` calls `StoryAgent.recap(session)`, which delegates to `MemoryManager.recap(session)`, and returns the recap; the story screen shows it at the top; a failed recap means the story loads without one. Week 1 returned a deterministic line (counts of lore, characters and turns) until F09 was built.
+- Implemented: as designed, and `loadSession` returns the deterministic "Loaded ..." line followed by "The story so far: <recap>". A story without turns gets no recap and no model call. When the recap fails or is refused, the story is loaded and the message ends with "(No recap this time: <reason>)". The recap is written from the scenario, the summary and the recent turns (prompts/recap.txt), never the hidden plan. `StoryGUI` loads in the background and shows the message in a "Welcome back" panel at the top of the Story tab, which hides when another story is opened; `StoryCLI` prints it.
+- What changed and why: telling the user why there is no recap is more helpful than silently showing none, and the counts line confirms which story was opened. A panel instead of a dialog keeps the recap in view while the user reads the transcript.
+- How the user need is still met: a reopened story shows a recap at the top of the story screen and play continues from the last turn; a failed recap never stops the load.
+- Affected use cases / classes / methods / patterns: UC07 1a, 1d; `StoryController.loadSession`, `StoryAgent.recap`, `MemoryManager.recap`, `StoryGUI` (recap panel, showRecap), `StoryCLI` (load); Facade, MVC.
+- Diagram to update: `figures/class-diagram/02-ui.png` (StoryGUI.showRecap), `06-agent.png` (recap methods); SD09 (recap call replaces describe).
+- Commit(s): feat(controller): show a model-written recap when a story is loaded

@@ -75,6 +75,12 @@ public class StoryGUI implements StoryObserver {
 
     // Story tab (F04, F10)
     final JLabel storyTitle = new JLabel();
+    // Recap after loading a story (F09), at the top of the Story tab
+    final JTextArea recap = new JTextArea(4, 40);
+    final JPanel recapPanel = new JPanel(new BorderLayout(4, 4));
+    final JButton hideRecap = new JButton("Hide");
+    /** The story the recap belongs to; the recap is hidden once another story is open. */
+    private String recapSessionId;
     final JTextArea transcript = new JTextArea();
     final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
     final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
@@ -322,14 +328,35 @@ public class StoryGUI implements StoryObserver {
         }
         String id = chooseSession(ids);
         if (id != null) {
-            showMessage(controller.loadSession(id));
+            runInBackground("Loading the story and writing a recap...", () -> controller.loadSession(id),
+                    this::showRecap, () -> { });
         }
+    }
+
+    /** Shows what was loaded and the agent's recap at the top of the Story tab (F09). */
+    void showRecap(String text) {
+        recapSessionId = controller.getSession().getId();
+        recap.setText(text);
+        recap.setCaretPosition(0);
+        recapPanel.setVisible(true);
+        tabs.setSelectedIndex(0);
     }
 
     // ---- story tab: turns, undo, retry, edit (F04, F10) ----
 
     private Component buildStoryTab() {
         storyTitle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        recap.setEditable(false);
+        recap.setLineWrap(true);
+        recap.setWrapStyleWord(true);
+        recapPanel.setBorder(BorderFactory.createTitledBorder("Welcome back: the story so far"));
+        recapPanel.add(new JScrollPane(recap), BorderLayout.CENTER);
+        recapPanel.add(buttons(hideRecap), BorderLayout.EAST);
+        recapPanel.setVisible(false);
+        hideRecap.addActionListener(e -> recapPanel.setVisible(false));
+        JPanel north = new JPanel(new BorderLayout(4, 4));
+        north.add(storyTitle, BorderLayout.NORTH);
+        north.add(recapPanel, BorderLayout.CENTER);
         transcript.setEditable(false);
         transcript.setLineWrap(true);
         transcript.setWrapStyleWord(true);
@@ -369,7 +396,7 @@ public class StoryGUI implements StoryObserver {
 
         JPanel p = new JPanel(new BorderLayout(4, 4));
         p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        p.add(storyTitle, BorderLayout.NORTH);
+        p.add(north, BorderLayout.NORTH);
         p.add(new JScrollPane(transcript), BorderLayout.CENTER);
         p.add(south, BorderLayout.SOUTH);
         return p;
@@ -378,6 +405,9 @@ public class StoryGUI implements StoryObserver {
     private void refreshStory(StorySession session) {
         Scenario sc = session.getScenario();
         storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : sc.getTitle());
+        if (!session.getId().equals(recapSessionId)) {
+            recapPanel.setVisible(false);
+        }
         StringBuilder sb = new StringBuilder();
         if (sc != null && !sc.getOpeningSituation().isEmpty()) {
             sb.append(sc.getOpeningSituation()).append("\n\n");

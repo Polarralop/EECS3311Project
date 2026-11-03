@@ -37,7 +37,7 @@ import java.util.Set;
  *
  * <p>Features: F01 F04-F09 F11 F12.
  * <p>Patterns: Facade (Facade), Strategy (Context).
- * <p>TODO (Stage 1 design): recap(session) (F09), generateEnding() (F12).
+ * <p>TODO (Stage 1 design): generateEnding() (F12).
  */
 public class StoryAgent {
 
@@ -106,6 +106,16 @@ public class StoryAgent {
      */
     public Plot planPlot(Scenario scenario, String basis) {
         return planner.createPlot(scenario, basis);
+    }
+
+    /**
+     * A recap of the story so far for a story that has just been loaded (F09). Empty when the story has
+     * no turns.
+     *
+     * @throws LLMException if Claude fails or declines; the caller loads the story without a recap
+     */
+    public String recap(StorySession session) {
+        return memory.recap(session);
     }
 
     /**

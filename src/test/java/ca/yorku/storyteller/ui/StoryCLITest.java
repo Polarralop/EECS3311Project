@@ -306,6 +306,17 @@ class StoryCLITest {
     }
 
     @Test
+    void loadPrintsTheRecapOfAStoryWithTurns() {
+        withPlan().enqueue(LLMResponse.ofText("The gate opens."));
+        Run first = started("do knock\nsave\n");
+        String id = first.controller().getSession().getId();
+        llm.enqueue(LLMResponse.ofText("You knocked, and the gate opened."));
+        Run second = run("load " + id + "\n");
+        assertTrue(second.output().contains("Loading " + id + " and writing a recap..."));
+        assertTrue(second.output().contains("1 turns.\n\nThe story so far: You knocked, and the gate opened."));
+    }
+
+    @Test
     void saveListAndLoad() {
         Run first = run("""
                 new

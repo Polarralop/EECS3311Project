@@ -14,7 +14,6 @@ import java.util.List;
  *
  * <p>Features: F04 F09 F11.
  * <p>Patterns: Facade (Subsystem).
- * <p>TODO (F09, week 3): recap().
  */
 public class MemoryManager {
 
@@ -24,6 +23,7 @@ public class MemoryManager {
     private final LLMClient llm;
     private final int recentTurnLimit;
     private final String summarizerPrompt;
+    private final String recapPrompt;
 
     public MemoryManager(LLMClient llm) {
         this(llm, DEFAULT_RECENT_TURN_LIMIT);
@@ -39,6 +39,7 @@ public class MemoryManager {
         this.llm = llm;
         this.recentTurnLimit = recentTurnLimit;
         this.summarizerPrompt = StoryAgent.loadPrompt("summarizer");
+        this.recapPrompt = StoryAgent.loadPrompt("recap");
     }
 
     public int getRecentTurnLimit() {
@@ -91,6 +92,32 @@ public class MemoryManager {
         }
         session.setSummary(reply.getText().strip(), upTo);
         return true;
+    }
+
+    /**
+     * A short recap of the story so far, written from the summary and the recent turns, for the user
+     * who has just reopened the story (F09). Empty when the story has no turns yet, with no model call.
+     *
+     * @throws LLMException if Claude fails, declines or writes nothing
+     */
+    public String recap(StorySession session) {
+        if (session.getTurns().isEmpty()) {
+            return "";
+        }
+        StringBuilder message = new StringBuilder();
+        if (session.getScenario() != null) {
+            message.append("## Scenario\n").append(session.getScenario().describe()).append("\n\n");
+        }
+        message.append("## Story so far\n").append(buildContext(session));
+        LLMResponse reply = llm.generate(new LLMRequest(recapPrompt, List.of(LLMMessage.user(message.toString())),
+                List.of(), 1_000));
+        if (reply.isRefused()) {
+            throw new LLMException("Claude declined to write a recap.");
+        }
+        if (reply.getText().isBlank()) {
+            throw new LLMException("Claude returned an empty recap.");
+        }
+        return reply.getText().strip();
     }
 
     private static String describe(List<Turn> turns) {

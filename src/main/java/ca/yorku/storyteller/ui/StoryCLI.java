@@ -119,7 +119,7 @@ public class StoryCLI implements StoryObserver {
                     controller.saveSession();
                     out.println("Saved as " + controller.getSession().getId() + ".");
                 }
-                case "load" -> out.println(controller.loadSession(requireArg(words.length > 1 ? words[1] : "", "load <id>")));
+                case "load" -> load(requireArg(words.length > 1 ? words[1] : "", "load <id>"));
                 case "sessions" -> listSessions();
                 case "proposals" -> printProposals();
                 case "approve", "reject" -> {
@@ -377,6 +377,12 @@ public class StoryCLI implements StoryObserver {
     }
 
     // ---- save and load (F11) ----
+
+    /** Loads a story and prints what was loaded and the recap the agent wrote (F09). */
+    private void load(String id) {
+        out.println("Loading " + id + " and writing a recap...");
+        out.println(controller.loadSession(id));
+    }
 
     private void listSessions() {
         List<String> ids = controller.listSessions();

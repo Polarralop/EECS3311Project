@@ -101,6 +101,7 @@ class EditTurnTest {
         llm.enqueue(LLMResponse.ofText("Original."));
         controller.submitTurn("a", "do");
         controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("A recap."));
         controller.loadSession(session.getId());
         controller.editTurn("Mine.");
         controller.undoTurn();

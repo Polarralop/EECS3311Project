@@ -164,8 +164,36 @@ class StoryTurnTest {
         llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
         controller.submitTurn("hi", "do");
         controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("Mira said hi at the gate."));
         controller.loadSession(session.getId());
         assertFalse(controller.canUndo());
         assertEquals(1, controller.getSession().getTurns().size());
+    }
+
+    @Test
+    void loadingAStoryWithTurnsShowsTheAgentsRecap() {
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
+        controller.submitTurn("knock", "do");
+        controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("  You knocked at the gate of Ashfall.  "));
+        String shown = controller.loadSession(session.getId());
+
+        assertEquals("Loaded \"Ashfall\": 1 lore entries, 0 characters, 1 turns.\n\n"
+                + "The story so far: You knocked at the gate of Ashfall.", shown);
+        String sent = llm.getRequests().get(llm.getRequests().size() - 1).getMessages().get(0).getText();
+        assertTrue(sent.contains("Turn 1 (Do): knock\nA."));
+        assertFalse(sent.contains("The letter is stolen"), "the recap never sees the hidden plan");
+    }
+
+    @Test
+    void aFailedRecapStillLoadsTheStory() {
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
+        controller.submitTurn("knock", "do");
+        controller.saveSession();
+        controller.newSession();
+        llm.enqueueFailure(new LLMException("Could not reach Claude."));
+        String shown = controller.loadSession(session.getId());
+        assertEquals(session.getId(), controller.getSession().getId());
+        assertTrue(shown.endsWith("(No recap this time: Could not reach Claude.)"));
     }
 }

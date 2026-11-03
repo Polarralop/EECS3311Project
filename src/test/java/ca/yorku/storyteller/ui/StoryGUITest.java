@@ -207,8 +207,32 @@ class StoryGUITest {
             gui.act(gui::load);
         });
         assertEquals(1, gui.characterItems.size());
-        assertTrue(gui.messages.get(1).startsWith("Loaded"));
+        assertTrue(gui.recap.getText().startsWith("Loaded"));
+        assertTrue(gui.recapPanel.isVisible());
         assertTrue(gui.status.getText().contains(id));
+        onEdt(() -> controller.newSession());
+        assertFalse(gui.recapPanel.isVisible(), "the recap belongs to the loaded story");
+    }
+
+    @Test
+    void loadingAStoryWithTurnsShowsTheRecapAtTheTopOfTheStoryTab() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("The gate opens."));
+        onEdt(() -> {
+            gui.input.setText("knock");
+            gui.send.doClick();
+            gui.act(gui::save);
+        });
+        String id = controller.getSession().getId();
+        llm.enqueue(LLMResponse.ofText("You knocked, and the gate opened."));
+        onEdt(() -> {
+            controller.newSession();
+            gui.sessionToPick = id;
+            gui.act(gui::load);
+        });
+        assertTrue(gui.recap.getText().endsWith("The story so far: You knocked, and the gate opened."));
+        assertTrue(gui.recapPanel.isVisible());
+        assertTrue(gui.transcript.getText().endsWith("The gate opens."));
     }
 
     // ---- story tab, start form and proposals (F01, F04, F05, F07, F10) ----
