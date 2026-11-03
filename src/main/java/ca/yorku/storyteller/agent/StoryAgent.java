@@ -70,7 +70,7 @@ public class StoryAgent {
         registry.register(new GetCharacterTool());
         registry.register(new ProposeLoreTool());
         registry.register(new UpdatePlotTool());
-        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager(), new ConsistencyChecker(llm));
+        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager(llm), new ConsistencyChecker(llm));
     }
 
     /**
@@ -109,8 +109,8 @@ public class StoryAgent {
     }
 
     /**
-     * Narrates one turn: frames the input with the mode, adds the story so far and the hidden plot
-     * guidance, then runs the tool-use loop until the model answers with narration. The narration is
+     * Narrates one turn: brings the summary up to date (F09), frames the input with the mode, adds the
+     * story so far and the hidden plot guidance, then runs the tool-use loop until the model answers with narration. The narration is
      * checked against the pinned and used lore (F08); contradictions become the turn's warnings and
      * never block it. The turn is returned, not added; the caller (SubmitTurnCommand) adds it so it can
      * be undone.
@@ -162,6 +162,7 @@ public class StoryAgent {
     }
 
     private String buildTurnPrompt(StorySession session, String input, InputModeStrategy mode) {
+        memory.summarizeIfNeeded(session);
         StringBuilder sb = new StringBuilder();
         if (session.getScenario() != null) {
             sb.append("## Scenario\n").append(session.getScenario().describe()).append("\n\n");

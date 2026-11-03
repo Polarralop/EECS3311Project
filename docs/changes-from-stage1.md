@@ -140,3 +140,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04 steps 8, 8a, 8b; UC06 1b; `ConsistencyChecker`, `StoryAgent`, `Turn`, `EditTurnCommand`, `StoryCLI`, `StoryGUI`, `prompts/consistency-check.txt`; Facade, Command.
 - Diagram to update: `figures/class-diagram/06-agent.png` (check signature, constructor), `04-model-story-and-lore.png` (Turn.setWarnings), `03-controller.png` (EditTurnCommand.oldWarnings); SD06.
 - Commit(s): feat(agent): flag contradictions with pinned lore in ConsistencyChecker
+
+## F09: Older turns are summarized at the start of a turn, not the end
+- Original (Stage 1): at the end of `takeTurn` the agent calls `MemoryManager.summarizeIfNeeded(session)`; `buildContext(session)` returns the summary and the most recent turns up to `recentTurnLimit`; `MemoryManager` has no constructor arguments in the class diagram.
+- Implemented: `takeTurn` calls `summarizeIfNeeded` first, then `buildContext`. `MemoryManager(llm)` / `MemoryManager(llm, recentTurnLimit)` take the model client. `summarizeIfNeeded` returns whether the summary changed. `buildContext` sends the summary followed by every turn the summary does not cover, normally exactly the last `recentTurnLimit` turns; when summarizing has failed it also sends the uncovered older turns, up to twice the limit.
+- What changed and why: the turn being narrated is added to the session by `SubmitTurnCommand` only after `takeTurn` returns, so a summary written at the end of `takeTurn` would stop one turn short of the next turn's window and that turn would be in neither the summary nor the recent turns. Summarizing at the start sees the session as the narration will, so the summary always ends where the recent turns begin. Sending uncovered turns on failure keeps the "try again after the next turn" fallback from losing a turn meanwhile.
+- How the user need is still met: long stories send a summary plus the recent turns; a failed summary is retried on the next turn and the story stays coherent in between.
+- Affected use cases / classes / methods / patterns: UC04 steps 5 and 9a; `MemoryManager`, `StoryAgent`, `prompts/summarizer.txt`; Facade.
+- Diagram to update: `figures/class-diagram/06-agent.png` (MemoryManager constructor and llm field); SD05 and SD06 (summarizeIfNeeded moves before buildContext).
+- Commit(s): feat(agent): summarize older turns in MemoryManager
