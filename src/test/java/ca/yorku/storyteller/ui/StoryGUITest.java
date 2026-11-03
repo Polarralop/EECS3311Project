@@ -42,6 +42,15 @@ class StoryGUITest {
         final List<String> errors = new ArrayList<>();
         final List<String> messages = new ArrayList<>();
         String sessionToPick;
+        /** Answers to yes/no questions, in order; the questions are recorded. */
+        final java.util.ArrayDeque<Boolean> answers = new java.util.ArrayDeque<>();
+        final List<String> questions = new ArrayList<>();
+
+        @Override
+        protected boolean confirm(String question) {
+            questions.add(question);
+            return answers.isEmpty() ? false : answers.poll();
+        }
 
         TestGUI(StoryController c) {
             super(c);
@@ -332,6 +341,46 @@ class StoryGUITest {
             gui.send.doClick();
         });
         assertTrue(gui.transcript.getText().endsWith("Orrin waves.\n\n[Warning: Contradicts L1 \"Orrin\" (canon): Orrin is dead.]"));
+    }
+
+    @Test
+    void acceptingTheSuggestedEndingShowsItAndClosesTheStory() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief takes the letter."))
+                .enqueue(LLMResponse.ofText("The thief vanishes into the snow."));
+        gui.answers.add(true);
+        onEdt(() -> {
+            gui.input.setText("guard the letter");
+            gui.send.doClick();
+        });
+        assertEquals(List.of("The story has reached its final turning point. End it now?"), gui.questions);
+        assertTrue(gui.transcript.getText().endsWith("* * *\n\nThe thief vanishes into the snow.\n\nTHE END"));
+        assertFalse(gui.send.isEnabled() || gui.input.isEnabled() || gui.undo.isEnabled() || gui.edit.isEnabled());
+        assertEquals("Rewrite ending", gui.endStory.getText());
+        assertTrue(gui.status.getText().contains("ended"));
+    }
+
+    @Test
+    void endStoryEarlyAsksFirstAndDoesNothingIfDeclined() throws Exception {
+        startFromTheForm();
+        assertFalse(gui.endStory.isEnabled(), "no turn yet");
+        llm.enqueue(LLMResponse.ofText("The gate opens."));
+        onEdt(() -> {
+            gui.input.setText("knock");
+            gui.send.doClick();
+        });
+        assertTrue(gui.questions.isEmpty(), "the plan is not complete, so no suggestion");
+        assertTrue(gui.endStory.isEnabled());
+        onEdt(() -> gui.endStory.doClick());
+        assertEquals("The story has not reached all of its turning points yet. End it here anyway?", gui.questions.get(0));
+        assertFalse(controller.isEnded());
+
+        llm.enqueue(LLMResponse.ofText("You go home."));
+        gui.answers.add(true);
+        onEdt(() -> gui.endStory.doClick());
+        assertEquals("You go home.", controller.getSession().getEnding());
     }
 
     @Test

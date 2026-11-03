@@ -167,3 +167,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC08; `StorySession`, `StoryAgent`, `PlotPlanner`, `prompts/ending.txt`; Facade, MVC (model).
 - Diagram to update: `figures/class-diagram/04-model-story-and-lore.png` (ending), `06-agent.png` (readyToEnd, generateEnding); SD10.
 - Commit(s): feat(agent): write the story's ending in StoryAgent.generateEnding
+
+## F12: How the ending is suggested, and what an ending closes
+- Original (Stage 1): an End Story button calls `StoryController.requestEnding()`; "when the agent judges that the story is ready to end, a prompt suggests it" (once `PlotPlanner.readyToEnd(plot)` is true); an early request asks the user to confirm; on failure the controller calls `showError(message)` and the story is unchanged. Nothing is said about turns after an ending.
+- Implemented: `requestEnding()` returns the ending and stores it with `StorySession.setEnding`. The controller adds four queries for the front ends: `canEnd()` (a started story with a turn), `isReadyToEnd()` (no pending events; when false the front end asks to confirm), `isEndingSuggested()` (true only right after the turn or retry that reached the last pivotal event, so a dismissed suggestion is not repeated every turn) and `isEnded()`. An ended story takes no more turns, undo, retry or edit; End story on an ended story asks to confirm and writes a new ending in its place. Errors reach the front end as exceptions, as for every other controller method. The GUI button reads "Rewrite ending" once the story has ended, and the CLI command is `end`.
+- What changed and why: the design leaves "ready to end" as a state, which would prompt after every turn once the plan is complete; suggesting on the transition gives the user one prompt to accept or dismiss, as UC08 1a describes. Blocking turns keeps the closing passage the last thing in the story, and rewriting gives the user a way to try again without undo history (which is not saved).
+- How the user need is still met: the user can end the story at any time (confirming when the plot is unfinished), the agent offers to end once the plan is complete, and the ending is shown at the end of the story in both front ends and kept when the story is saved.
+- Affected use cases / classes / methods / patterns: UC08 (main flow, 1a, 1b, 2a); `StoryController`, `StoryCLI` (end, offerEnding), `StoryGUI` (endStory, confirm, offerEnding); MVC, Observer.
+- Diagram to update: `figures/class-diagram/02-ui.png`, `03-controller.png`; SD10.
+- Commit(s): feat(ui): end the story from StoryGUI and StoryCLI

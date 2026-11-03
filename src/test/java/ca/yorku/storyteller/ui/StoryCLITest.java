@@ -317,6 +317,34 @@ class StoryCLITest {
     }
 
     @Test
+    void theStorytellerSuggestsAnEndingWhenThePlanIsComplete() {
+        withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief takes the letter."))
+                .enqueue(LLMResponse.ofText("You watch the thief vanish into the snow."));
+        Run r = started("do guard the letter\ny\nturns\ndo follow\n");
+        String out = r.output();
+        assertTrue(out.contains("The story has reached its final turning point. End it now? (y/n)"));
+        assertTrue(out.contains("* * *\n\nYou watch the thief vanish into the snow.\n\nTHE END"));
+        assertTrue(out.contains(", ended]"));
+        assertTrue(out.lastIndexOf("THE END") > out.indexOf("> Do: guard the letter"), "turns shows the ending");
+        assertTrue(out.contains("Error: The story has ended."));
+    }
+
+    @Test
+    void endingEarlyAsksFirstAndDismissingKeepsTheStoryGoing() {
+        withPlan().enqueue(LLMResponse.ofText("The gate opens."))
+                .enqueue(LLMResponse.ofText("You go home."));
+        Run r = started("end\ndo knock\nend\nn\nend\ny\n");
+        String out = r.output();
+        assertTrue(out.contains("Error: Take at least one turn before ending the story."));
+        assertTrue(out.contains("The story has not reached all of its turning points yet. End it here anyway? (y/n)"));
+        assertTrue(out.contains("The story continues."));
+        assertTrue(out.contains("You go home.\n\nTHE END"));
+        assertEquals("You go home.", r.controller().getSession().getEnding());
+    }
+
+    @Test
     void saveListAndLoad() {
         Run first = run("""
                 new
