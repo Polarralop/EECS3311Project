@@ -6,6 +6,7 @@ import ca.yorku.storyteller.agent.tools.SearchLoreTool;
 import ca.yorku.storyteller.agent.tools.ToolCall;
 import ca.yorku.storyteller.agent.tools.ToolRegistry;
 import ca.yorku.storyteller.agent.tools.ToolResult;
+import ca.yorku.storyteller.agent.tools.UpdatePlotTool;
 import ca.yorku.storyteller.llm.LLMClient;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.llm.LLMMessage;
@@ -14,6 +15,9 @@ import ca.yorku.storyteller.llm.LLMResponse;
 import ca.yorku.storyteller.llm.LLMToolCall;
 import ca.yorku.storyteller.llm.LLMToolResult;
 import ca.yorku.storyteller.model.Character;
+import ca.yorku.storyteller.model.EventStatus;
+import ca.yorku.storyteller.model.LoreEntry;
+import ca.yorku.storyteller.model.PivotalEvent;
 import ca.yorku.storyteller.model.Plot;
 import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
@@ -36,7 +40,6 @@ import java.util.Set;
  *
  * <p>Features: F01 F04-F09 F11 F12.
  * <p>Patterns: Facade (Facade), Strategy (Context).
- * <p>TODO (Stage 1 design): recap(session) (F09), generateEnding() (F12).
  */
 public class StoryAgent {
 
@@ -49,23 +52,27 @@ public class StoryAgent {
     private final ToolRegistry tools;
     private final PlotPlanner planner;
     private final MemoryManager memory;
+    private final ConsistencyChecker checker;
     private final String systemPrompt;
 
-    public StoryAgent(LLMClient llm, ToolRegistry tools, PlotPlanner planner, MemoryManager memory) {
+    public StoryAgent(LLMClient llm, ToolRegistry tools, PlotPlanner planner, MemoryManager memory,
+                      ConsistencyChecker checker) {
         this.llm = llm;
         this.tools = tools;
         this.planner = planner;
         this.memory = memory;
+        this.checker = checker;
         this.systemPrompt = loadPrompt("system");
     }
 
-    /** An agent with the standard tools, planner and memory over the given model. */
+    /** An agent with the standard tools, planner, memory and consistency checker over the given model. */
     public static StoryAgent create(LLMClient llm) {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new SearchLoreTool());
         registry.register(new GetCharacterTool());
         registry.register(new ProposeLoreTool());
-        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager());
+        registry.register(new UpdatePlotTool());
+        return new StoryAgent(llm, registry, new PlotPlanner(llm), new MemoryManager(llm), new ConsistencyChecker(llm));
     }
 
     /**
@@ -103,10 +110,72 @@ public class StoryAgent {
         return planner.createPlot(scenario, basis);
     }
 
+    /** True when every pivotal event has been reached, so the agent suggests ending the story (F12). */
+    public boolean readyToEnd(StorySession session) {
+        return planner.readyToEnd(session.getPlot());
+    }
+
     /**
-     * Narrates one turn: frames the input with the mode, adds the story so far and the hidden plot
-     * guidance, then runs the tool-use loop until the model answers with narration. The turn is
-     * returned, not added; the caller (SubmitTurnCommand) adds it so it can be undone.
+     * Writes the closing passage from the pivotal events, the lore and the story so far (F12). If events
+     * are still pending, the ending is written from the current point and they need not happen. The
+     * text is returned; the caller stores it.
+     *
+     * @throws LLMException if Claude declines, fails or writes nothing
+     */
+    public String generateEnding(StorySession session) {
+        boolean complete = planner.readyToEnd(session.getPlot());
+        StringBuilder sb = new StringBuilder();
+        if (session.getScenario() != null) {
+            sb.append("## Scenario\n").append(session.getScenario().describe()).append("\n\n");
+        }
+        if (session.getPlot() != null) {
+            sb.append("## The hidden plan\n");
+            for (PivotalEvent e : session.getPlot().getEvents()) {
+                if (e.getStatus() != EventStatus.DROPPED) {
+                    sb.append(e.isReached() ? "[happened] " : "[did not happen] ").append(e.getDescription()).append('\n');
+                }
+            }
+            sb.append(complete ? "Every pivotal event has happened: resolve the story they built.\n\n"
+                    : "The user chose to end the story before every pivotal event happened. End it from where it "
+                    + "stands; do not rush the remaining events in.\n\n");
+        }
+        if (session.getLoreBook().size() > 0) {
+            sb.append("## Lore\n");
+            for (LoreEntry e : session.getLoreBook().getAll()) {
+                sb.append(e.isPinned() ? "[canon] " : "").append(e.getTitle()).append(": ")
+                        .append(e.getContent().strip()).append('\n');
+            }
+            sb.append('\n');
+        }
+        String context = memory.buildContext(session);
+        sb.append("## Story so far\n").append(context.isEmpty() ? "No turns yet." : context);
+        LLMResponse reply = llm.generate(new LLMRequest(loadPrompt("ending"), List.of(LLMMessage.user(sb.toString())),
+                List.of(), 4_000));
+        if (reply.isRefused()) {
+            throw new LLMException("Claude declined to write an ending. Try again, or take another turn first.");
+        }
+        if (reply.getText().isBlank()) {
+            throw new LLMException("Claude returned no ending. Try again.");
+        }
+        return reply.getText().strip();
+    }
+
+    /**
+     * A recap of the story so far for a story that has just been loaded (F09). Empty when the story has
+     * no turns.
+     *
+     * @throws LLMException if Claude fails or declines; the caller loads the story without a recap
+     */
+    public String recap(StorySession session) {
+        return memory.recap(session);
+    }
+
+    /**
+     * Narrates one turn: brings the summary up to date (F09), frames the input with the mode, adds the
+     * story so far and the hidden plot guidance, then runs the tool-use loop until the model answers with narration. The narration is
+     * checked against the pinned and used lore (F08); contradictions become the turn's warnings and
+     * never block it. The turn is returned, not added; the caller (SubmitTurnCommand) adds it so it can
+     * be undone.
      *
      * @throws IllegalArgumentException if the input is empty
      * @throws LLMException if the model declines, fails or never finishes the narration
@@ -119,8 +188,10 @@ public class StoryAgent {
         LLMRequest request = new LLMRequest(systemPrompt, List.of(LLMMessage.user(prompt)), tools.schemas());
         Set<String> usedLore = new LinkedHashSet<>();
         LLMResponse reply = runToolLoop(request, session, usedLore);
-        return new Turn(session.nextTurnNumber(), mode.getName(), input.strip(), reply.getText().strip(),
-                List.copyOf(usedLore), List.of());
+        String narration = reply.getText().strip();
+        List<String> warnings = checker.check(narration, session, usedLore);
+        return new Turn(session.nextTurnNumber(), mode.getName(), input.strip(), narration,
+                List.copyOf(usedLore), warnings);
     }
 
     /**
@@ -153,6 +224,7 @@ public class StoryAgent {
     }
 
     private String buildTurnPrompt(StorySession session, String input, InputModeStrategy mode) {
+        memory.summarizeIfNeeded(session);
         StringBuilder sb = new StringBuilder();
         if (session.getScenario() != null) {
             sb.append("## Scenario\n").append(session.getScenario().describe()).append("\n\n");

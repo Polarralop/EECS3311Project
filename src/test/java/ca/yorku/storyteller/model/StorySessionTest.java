@@ -1,6 +1,7 @@
 package ca.yorku.storyteller.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -139,5 +140,16 @@ class StorySessionTest {
         session.setScenario(s);
         assertEquals("Title: Ashfall\nPremise: A city under grey snow.\nSetting: Volcanic north",
                 session.getScenario().describe());
+    }
+
+    @Test
+    void anEndingClosesTheStoryAndAnEmptyOneReopensIt() {
+        assertEquals("", session.getEnding());
+        assertFalse(session.isEnded());
+        session.setEnding(" The snow stopped. ");
+        assertEquals("The snow stopped.", session.getEnding());
+        assertTrue(session.isEnded());
+        session.setEnding(null);
+        assertFalse(session.isEnded());
     }
 }

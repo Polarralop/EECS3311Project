@@ -27,6 +27,9 @@ import org.junit.jupiter.api.Test;
 /** Tests for {@link StoryAgent}. Agent tests use FakeLLMClient, never live API calls. */
 class StoryAgentTest {
 
+    /** The consistency check's answer when the narration contradicts nothing (F08). */
+    static final LLMResponse CLEAN = LLMResponse.ofText("{\"contradictions\": []}");
+
     private FakeLLMClient llm;
     private StoryAgent agent;
     private StorySession session;
@@ -48,7 +51,7 @@ class StoryAgentTest {
 
     @Test
     void plainNarrationBecomesATurnWithNoLore() {
-        llm.enqueue(LLMResponse.ofText("  The gate creaks open.  "));
+        llm.enqueue(LLMResponse.ofText("  The gate creaks open.  ")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "open the gate", new DoModeStrategy());
         assertEquals(1, t.getNumber());
         assertEquals("Do", t.getModeName());
@@ -63,7 +66,7 @@ class StoryAgentTest {
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(
                         call("a", "search_lore", Map.of("query", "ashfall")),
                         call("b", "get_character", Map.of("name", "Mira")))))
-                .enqueue(LLMResponse.ofText("Snow settles on Mira's hood."));
+                .enqueue(LLMResponse.ofText("Snow settles on Mira's hood.")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "look around", new DoModeStrategy());
 
         assertEquals("Snow settles on Mira's hood.", t.getNarration());
@@ -82,7 +85,7 @@ class StoryAgentTest {
     @Test
     void anInvalidToolCallIsReportedToTheModelAndTheTurnContinues() {
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(call("x", "burn_city", Map.of()))))
-                .enqueue(LLMResponse.ofText("Nothing burns."));
+                .enqueue(LLMResponse.ofText("Nothing burns.")).enqueue(CLEAN);
         Turn t = agent.takeTurn(session, "burn it", new DoModeStrategy());
         assertEquals("Nothing burns.", t.getNarration());
         LLMToolResult r = llm.getRequests().get(1).getMessages().get(2).getToolResults().get(0);
@@ -92,17 +95,17 @@ class StoryAgentTest {
 
     @Test
     void everyRequestCarriesTheToolsAndTheSystemPrompt() {
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "wait", new DoModeStrategy());
         LLMRequest r = llm.getRequests().get(0);
-        assertEquals(List.of("search_lore", "get_character", "propose_lore"), r.getTools().stream().map(s -> s.name()).toList());
+        assertEquals(List.of("search_lore", "get_character", "propose_lore", "update_plot"), r.getTools().stream().map(s -> s.name()).toList());
         assertTrue(r.getSystemPrompt().contains("Never reveal"));
     }
 
     @Test
     void thePromptHoldsTheScenarioCharactersHistoryAndFramedInput() {
         session.addTurn(new Turn(1, "Say", "Hello", "The guard nods.", List.of(), List.of()));
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "Where is the guild?", new SayModeStrategy());
         String prompt = llm.getRequests().get(0).getMessages().get(0).getText();
         assertTrue(prompt.contains("Premise: A courier carries a forbidden letter."));
@@ -116,12 +119,12 @@ class StoryAgentTest {
     void theNextPendingEventIsSentAsHiddenGuidance() {
         session.setPlot(new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."),
                 new PivotalEvent("E2", "The guild burns."))));
-        llm.enqueue(LLMResponse.ofText("Fine."));
+        llm.enqueue(LLMResponse.ofText("Fine.")).enqueue(CLEAN);
         agent.takeTurn(session, "walk", new DoModeStrategy());
         String prompt = llm.getRequests().get(0).getMessages().get(0).getText();
         assertTrue(prompt.contains("## Hidden plot guidance (never reveal this)"));
         assertTrue(prompt.contains("Next pivotal event (E1): The letter is stolen."));
-        assertFalse(prompt.contains("The guild burns."), "only the next event is sent");
+        assertTrue(prompt.contains("Later pivotal events: E2: The guild burns."), "later events, so a revision can replace them");
     }
 
     @Test
@@ -160,6 +163,51 @@ class StoryAgentTest {
     void emptyInputIsRejectedWithoutCallingTheModel() {
         assertThrows(IllegalArgumentException.class, () -> agent.takeTurn(session, "  ", new DoModeStrategy()));
         assertTrue(llm.getRequests().isEmpty());
+    }
+
+    // ---- ending (F12) ----
+
+    @Test
+    void theEndingDrawsOnThePlanTheLoreAndTheStorySoFar() {
+        Plot plot = new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."),
+                new PivotalEvent("E2", "The guild burns.")));
+        plot.markReached("E1");
+        plot.markReached("E2");
+        session.setPlot(plot);
+        session.addTurn(new Turn(1, "Do", "run", "Mira runs from the fire.", List.of(), List.of()));
+        assertTrue(agent.readyToEnd(session));
+        llm.enqueue(LLMResponse.ofText("  Dawn finds Mira at the gate.  "));
+
+        assertEquals("Dawn finds Mira at the gate.", agent.generateEnding(session));
+        LLMRequest r = llm.getRequests().get(0);
+        String sent = r.getMessages().get(0).getText();
+        assertTrue(sent.contains("[happened] The letter is stolen.\n[happened] The guild burns."));
+        assertTrue(sent.contains("Every pivotal event has happened"));
+        assertTrue(sent.contains("[canon] Ashfall: A city under grey snow."));
+        assertTrue(sent.contains("Turn 1 (Do): run\nMira runs from the fire."));
+        assertTrue(r.getTools().isEmpty());
+        assertTrue(r.getSystemPrompt().contains("closing passage"));
+        assertTrue(session.getEnding().isEmpty(), "the agent returns the ending; the controller stores it");
+    }
+
+    @Test
+    void anEarlyEndingIsWrittenFromTheCurrentPoint() {
+        session.setPlot(new Plot("", List.of(new PivotalEvent("E1", "The letter is stolen."))));
+        assertFalse(agent.readyToEnd(session));
+        llm.enqueue(LLMResponse.ofText("It ends quietly."));
+        agent.generateEnding(session);
+        String sent = llm.getRequests().get(0).getMessages().get(0).getText();
+        assertTrue(sent.contains("[did not happen] The letter is stolen."));
+        assertTrue(sent.contains("before every pivotal event happened"));
+    }
+
+    @Test
+    void aRefusedEmptyOrFailedEndingIsAnError() {
+        llm.enqueue(LLMResponse.ofRefusal()).enqueue(LLMResponse.ofText(" "))
+                .enqueueFailure(new LLMException("Could not reach Claude."));
+        assertTrue(assertThrows(LLMException.class, () -> agent.generateEnding(session)).getMessage().contains("declined"));
+        assertThrows(LLMException.class, () -> agent.generateEnding(session));
+        assertEquals("Could not reach Claude.", assertThrows(LLMException.class, () -> agent.generateEnding(session)).getMessage());
     }
 
     // ---- scenario drafts (F01) ----

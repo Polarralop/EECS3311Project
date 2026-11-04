@@ -48,6 +48,7 @@ public class StoryCLI implements StoryObserver {
               undo                    undo the last turn (or the last edit)
               retry                   write the last turn again from the same input
               edit                    replace the last turn's narration with your own text
+              end                     have the storyteller write the ending (again to rewrite it)
               proposals               list the lore the storyteller has proposed
               approve <id>            add a proposal to the lore book
               reject <id>             discard a proposal
@@ -115,11 +116,12 @@ public class StoryCLI implements StoryObserver {
                 }
                 case "retry" -> retry();
                 case "edit" -> edit();
+                case "end" -> end();
                 case "save" -> {
                     controller.saveSession();
                     out.println("Saved as " + controller.getSession().getId() + ".");
                 }
-                case "load" -> out.println(controller.loadSession(requireArg(words.length > 1 ? words[1] : "", "load <id>")));
+                case "load" -> load(requireArg(words.length > 1 ? words[1] : "", "load <id>"));
                 case "sessions" -> listSessions();
                 case "proposals" -> printProposals();
                 case "approve", "reject" -> {
@@ -147,6 +149,7 @@ public class StoryCLI implements StoryObserver {
         int waiting = session.getPendingProposals().size();
         out.println("[" + session.getId() + ": " + session.getLoreBook().size() + " lore, "
                 + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns"
+                + (session.isEnded() ? ", ended" : "")
                 + (waiting == 0 ? "" : ", " + waiting + " lore proposal" + (waiting == 1 ? "" : "s")
                 + " waiting (type \"proposals\")") + "]");
     }
@@ -187,17 +190,22 @@ public class StoryCLI implements StoryObserver {
             out.println("The storyteller is writing...");
         }
         printTurn(controller.submitTurn(input, mode));
+        offerEnding();
     }
 
     private void retry() {
         String input = controller.getSession() == null ? ""
                 : controller.getSession().lastTurn().map(Turn::getUserInput).orElse("");
         out.println("The storyteller is rewriting the last turn...");
+        Turn again;
         try {
-            printTurn(controller.retryTurn());
+            again = controller.retryTurn();
         } catch (LLMException e) {
             printError(e.getMessage() + " The turn stays undone; your input was: " + input);
+            return;
         }
+        printTurn(again);
+        offerEnding();
     }
 
     private void edit() {
@@ -216,12 +224,59 @@ public class StoryCLI implements StoryObserver {
         out.println("Turn " + last.getNumber() + " edited. Type \"undo\" to restore the original.");
     }
 
+    // ---- ending (F12) ----
+
+    /** After a turn that reached the last pivotal event, the storyteller suggests ending the story. */
+    private void offerEnding() {
+        if (!controller.isEndingSuggested()) {
+            return;
+        }
+        if (yes(ask("The story has reached its final turning point. End it now? (y/n)"))) {
+            writeEnding();
+        } else {
+            out.println("The story continues. Type \"end\" whenever you want an ending.");
+        }
+    }
+
+    private void end() {
+        if (controller.isEnded()) {
+            if (!yes(ask("The story already has an ending. Write a new one in its place? (y/n)"))) {
+                return;
+            }
+        } else if (controller.canEnd() && !controller.isReadyToEnd()
+                && !yes(ask("The story has not reached all of its turning points yet. End it here anyway? (y/n)"))) {
+            out.println("The story continues.");
+            return;
+        }
+        writeEnding();
+    }
+
+    private void writeEnding() {
+        if (controller.canEnd()) {
+            out.println("The storyteller is writing the ending...");
+        }
+        printEnding(controller.requestEnding());
+    }
+
+    private void printEnding(String ending) {
+        out.println();
+        out.println("* * *");
+        out.println();
+        out.println(ending);
+        out.println();
+        out.println("THE END");
+        out.println();
+    }
+
     private void printTurn(Turn t) {
         out.println();
         out.println(t.getNarration());
         if (!t.getUsedLoreIds().isEmpty()) {
             List<String> used = t.getUsedLoreIds().stream().map(this::loreLabel).toList();
             out.println("(Lore used: " + String.join(", ", used) + ")");
+        }
+        for (String w : t.getWarnings()) {
+            out.println("Warning: " + w);
         }
         out.println();
     }
@@ -241,6 +296,9 @@ public class StoryCLI implements StoryObserver {
         for (Turn t : s.getTurns()) {
             out.println("> " + t.getModeName() + ": " + t.getUserInput());
             printTurn(t);
+        }
+        if (s.isEnded()) {
+            printEnding(s.getEnding());
         }
     }
 
@@ -374,6 +432,12 @@ public class StoryCLI implements StoryObserver {
     }
 
     // ---- save and load (F11) ----
+
+    /** Loads a story and prints what was loaded and the recap the agent wrote (F09). */
+    private void load(String id) {
+        out.println("Loading " + id + " and writing a recap...");
+        out.println(controller.loadSession(id));
+    }
 
     private void listSessions() {
         List<String> ids = controller.listSessions();

@@ -42,6 +42,15 @@ class StoryGUITest {
         final List<String> errors = new ArrayList<>();
         final List<String> messages = new ArrayList<>();
         String sessionToPick;
+        /** Answers to yes/no questions, in order; the questions are recorded. */
+        final java.util.ArrayDeque<Boolean> answers = new java.util.ArrayDeque<>();
+        final List<String> questions = new ArrayList<>();
+
+        @Override
+        protected boolean confirm(String question) {
+            questions.add(question);
+            return answers.isEmpty() ? false : answers.poll();
+        }
 
         TestGUI(StoryController c) {
             super(c);
@@ -207,8 +216,32 @@ class StoryGUITest {
             gui.act(gui::load);
         });
         assertEquals(1, gui.characterItems.size());
-        assertTrue(gui.messages.get(1).startsWith("Loaded"));
+        assertTrue(gui.recap.getText().startsWith("Loaded"));
+        assertTrue(gui.recapPanel.isVisible());
         assertTrue(gui.status.getText().contains(id));
+        onEdt(() -> controller.newSession());
+        assertFalse(gui.recapPanel.isVisible(), "the recap belongs to the loaded story");
+    }
+
+    @Test
+    void loadingAStoryWithTurnsShowsTheRecapAtTheTopOfTheStoryTab() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("The gate opens."));
+        onEdt(() -> {
+            gui.input.setText("knock");
+            gui.send.doClick();
+            gui.act(gui::save);
+        });
+        String id = controller.getSession().getId();
+        llm.enqueue(LLMResponse.ofText("You knocked, and the gate opened."));
+        onEdt(() -> {
+            controller.newSession();
+            gui.sessionToPick = id;
+            gui.act(gui::load);
+        });
+        assertTrue(gui.recap.getText().endsWith("The story so far: You knocked, and the gate opened."));
+        assertTrue(gui.recapPanel.isVisible());
+        assertTrue(gui.transcript.getText().endsWith("The gate opens."));
     }
 
     // ---- story tab, start form and proposals (F01, F04, F05, F07, F10) ----
@@ -281,7 +314,8 @@ class StoryGUITest {
         });
         startFromTheForm();
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
-                .enqueue(LLMResponse.ofText("Snow settles on the gate."));
+                .enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"));
         onEdt(() -> {
             gui.modeChoice.setSelectedItem("Say");
             gui.input.setText("Open up!");
@@ -291,6 +325,62 @@ class StoryGUITest {
         assertEquals("Ashfall", gui.usedLoreItems.get(0).getTitle());
         assertEquals("", gui.input.getText());
         assertTrue(gui.undo.isEnabled() && gui.retry.isEnabled() && gui.edit.isEnabled());
+    }
+
+    @Test
+    void warningsAppearUnderTheTurnsNarration() throws Exception {
+        onEdt(() -> {
+            controller.newSession();
+            controller.saveLoreEntry(new ca.yorku.storyteller.model.LoreEntry(null, "Orrin", "Orrin is dead.", List.of(), true));
+        });
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("Orrin waves."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": [{\"entry\": \"L1\", \"problem\": \"Orrin is dead.\"}]}"));
+        onEdt(() -> {
+            gui.input.setText("look");
+            gui.send.doClick();
+        });
+        assertTrue(gui.transcript.getText().endsWith("Orrin waves.\n\n[Warning: Contradicts L1 \"Orrin\" (canon): Orrin is dead.]"));
+    }
+
+    @Test
+    void acceptingTheSuggestedEndingShowsItAndClosesTheStory() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief takes the letter."))
+                .enqueue(LLMResponse.ofText("The thief vanishes into the snow."));
+        gui.answers.add(true);
+        onEdt(() -> {
+            gui.input.setText("guard the letter");
+            gui.send.doClick();
+        });
+        assertEquals(List.of("The story has reached its final turning point. End it now?"), gui.questions);
+        assertTrue(gui.transcript.getText().endsWith("* * *\n\nThe thief vanishes into the snow.\n\nTHE END"));
+        assertFalse(gui.send.isEnabled() || gui.input.isEnabled() || gui.undo.isEnabled() || gui.edit.isEnabled());
+        assertEquals("Rewrite ending", gui.endStory.getText());
+        assertTrue(gui.status.getText().contains("ended"));
+    }
+
+    @Test
+    void endStoryEarlyAsksFirstAndDoesNothingIfDeclined() throws Exception {
+        startFromTheForm();
+        assertFalse(gui.endStory.isEnabled(), "no turn yet");
+        llm.enqueue(LLMResponse.ofText("The gate opens."));
+        onEdt(() -> {
+            gui.input.setText("knock");
+            gui.send.doClick();
+        });
+        assertTrue(gui.questions.isEmpty(), "the plan is not complete, so no suggestion");
+        assertTrue(gui.endStory.isEnabled());
+        onEdt(() -> gui.endStory.doClick());
+        assertEquals("The story has not reached all of its turning points yet. End it here anyway?", gui.questions.get(0));
+        assertFalse(controller.isEnded());
+
+        llm.enqueue(LLMResponse.ofText("You go home."));
+        gui.answers.add(true);
+        onEdt(() -> gui.endStory.doClick());
+        assertEquals("You go home.", controller.getSession().getEnding());
     }
 
     @Test

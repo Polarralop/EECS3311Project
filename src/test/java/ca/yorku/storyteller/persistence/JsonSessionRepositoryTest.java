@@ -86,6 +86,17 @@ class JsonSessionRepositoryTest {
         assertEquals(2, loaded.getProposals().size());
         assertEquals("Mira rang the bell.", loaded.getSummary());
         assertEquals(1, loaded.getSummarizedUpTo());
+        assertEquals("", loaded.getEnding());
+    }
+
+    @Test
+    void anEndingIsSavedWithTheStory() {
+        StorySession s = fullSession("story-2");
+        s.setEnding("  The bell fell silent.  ");
+        repo.save(s);
+        StorySession loaded = repo.load("story-2");
+        assertEquals("The bell fell silent.", loaded.getEnding());
+        assertTrue(loaded.isEnded());
     }
 
     @Test

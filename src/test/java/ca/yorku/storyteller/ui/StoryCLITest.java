@@ -145,8 +145,11 @@ class StoryCLITest {
     void turnsUndoAndRetryFromTheCli() {
         withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
                 .enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"))
                 .enqueue(LLMResponse.ofText("The guard nods."))
-                .enqueue(LLMResponse.ofText("The guard laughs instead."));
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"))
+                .enqueue(LLMResponse.ofText("The guard laughs instead."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"));
         Run r = started("""
                 lore add
                 Ashfall
@@ -170,6 +173,22 @@ class StoryCLITest {
         assertTrue(out.contains("Error: Usage: do <text>"));
         assertFalse(out.contains("The letter is stolen"), "the plan is never printed");
         assertTrue(r.controller().getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void consistencyWarningsArePrintedUnderTheNarration() {
+        withPlan().enqueue(LLMResponse.ofText("Orrin waves from the forge."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": [{\"entry\": \"L1\", \"problem\": \"Orrin died in the fire.\"}]}"));
+        Run r = started("""
+                lore add
+                Orrin
+                Orrin died in the fire.
+
+                y
+                do look at the forge
+                """);
+        assertTrue(r.output().contains("Orrin waves from the forge.\nWarning: Contradicts L1 \"Orrin\" (canon): Orrin died in the fire."));
+        assertEquals(1, r.controller().getSession().getTurns().size(), "the warning does not block the turn");
     }
 
     @Test
@@ -284,6 +303,45 @@ class StoryCLITest {
         assertTrue(r.output().contains("Traits: stubborn, curious"));
         assertTrue(r.output().contains("Orrin: Head of the guild."));
         assertEquals("Orrin", r.controller().getCharacter("Mira").getRelationships().get(0).getTargetName());
+    }
+
+    @Test
+    void loadPrintsTheRecapOfAStoryWithTurns() {
+        withPlan().enqueue(LLMResponse.ofText("The gate opens."));
+        Run first = started("do knock\nsave\n");
+        String id = first.controller().getSession().getId();
+        llm.enqueue(LLMResponse.ofText("You knocked, and the gate opened."));
+        Run second = run("load " + id + "\n");
+        assertTrue(second.output().contains("Loading " + id + " and writing a recap..."));
+        assertTrue(second.output().contains("1 turns.\n\nThe story so far: You knocked, and the gate opened."));
+    }
+
+    @Test
+    void theStorytellerSuggestsAnEndingWhenThePlanIsComplete() {
+        withPlan().enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief takes the letter."))
+                .enqueue(LLMResponse.ofText("You watch the thief vanish into the snow."));
+        Run r = started("do guard the letter\ny\nturns\ndo follow\n");
+        String out = r.output();
+        assertTrue(out.contains("The story has reached its final turning point. End it now? (y/n)"));
+        assertTrue(out.contains("* * *\n\nYou watch the thief vanish into the snow.\n\nTHE END"));
+        assertTrue(out.contains(", ended]"));
+        assertTrue(out.lastIndexOf("THE END") > out.indexOf("> Do: guard the letter"), "turns shows the ending");
+        assertTrue(out.contains("Error: The story has ended."));
+    }
+
+    @Test
+    void endingEarlyAsksFirstAndDismissingKeepsTheStoryGoing() {
+        withPlan().enqueue(LLMResponse.ofText("The gate opens."))
+                .enqueue(LLMResponse.ofText("You go home."));
+        Run r = started("end\ndo knock\nend\nn\nend\ny\n");
+        String out = r.output();
+        assertTrue(out.contains("Error: Take at least one turn before ending the story."));
+        assertTrue(out.contains("The story has not reached all of its turning points yet. End it here anyway? (y/n)"));
+        assertTrue(out.contains("The story continues."));
+        assertTrue(out.contains("You go home.\n\nTHE END"));
+        assertEquals("You go home.", r.controller().getSession().getEnding());
     }
 
     @Test

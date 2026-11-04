@@ -26,6 +26,7 @@ public class StorySession {
     private String summary = "";
     private int summarizedUpTo;
     private int nextProposalNumber = 1;
+    private String ending = "";
 
     /** Front ends watching this session. Transient: observers are never saved (F11). */
     private transient List<StoryObserver> observers = new ArrayList<>();
@@ -202,6 +203,23 @@ public class StorySession {
         }
         this.summary = summary == null ? "" : summary;
         this.summarizedUpTo = upTo;
+    }
+
+    // ---- ending (F12) ----
+
+    /** The closing passage, or empty while the story is still going. */
+    public String getEnding() {
+        return ending == null ? "" : ending;
+    }
+
+    /** Stores the closing passage; an empty text reopens the story. */
+    public void setEnding(String ending) {
+        this.ending = ending == null ? "" : ending.strip();
+    }
+
+    /** True once the story has a closing passage; no more turns are taken. */
+    public boolean isEnded() {
+        return !getEnding().isEmpty();
     }
 
     // ---- characters (F03) ----

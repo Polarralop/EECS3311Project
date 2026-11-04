@@ -53,6 +53,21 @@ class EditTurnTest {
     }
 
     @Test
+    void editClearsTheConsistencyWarningsAndUndoBringsThemBack() {
+        controller.saveLoreEntry(new ca.yorku.storyteller.model.LoreEntry(null, "Orrin", "Orrin is dead.", List.of(), true));
+        llm.enqueue(LLMResponse.ofText("Orrin waves."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": [{\"entry\": \"L1\", \"problem\": \"Orrin is dead.\"}]}"));
+        Turn t = controller.submitTurn("a", "do");
+        assertEquals(List.of("Contradicts L1 \"Orrin\" (canon): Orrin is dead."), t.getWarnings());
+
+        controller.editTurn("Orrin's portrait hangs above the door.");
+        assertTrue(t.getWarnings().isEmpty(), "the warning was about the agent's text");
+        controller.undoTurn();
+        assertEquals(1, t.getWarnings().size());
+        assertEquals("Orrin waves.", t.getNarration());
+    }
+
+    @Test
     void emptyTextIsRejectedAndNothingChanges() {
         llm.enqueue(LLMResponse.ofText("Original."));
         controller.submitTurn("a", "do");
@@ -86,6 +101,7 @@ class EditTurnTest {
         llm.enqueue(LLMResponse.ofText("Original."));
         controller.submitTurn("a", "do");
         controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("A recap."));
         controller.loadSession(session.getId());
         controller.editTurn("Mine.");
         controller.undoTurn();

@@ -75,6 +75,12 @@ public class StoryGUI implements StoryObserver {
 
     // Story tab (F04, F10)
     final JLabel storyTitle = new JLabel();
+    // Recap after loading a story (F09), at the top of the Story tab
+    final JTextArea recap = new JTextArea(4, 40);
+    final JPanel recapPanel = new JPanel(new BorderLayout(4, 4));
+    final JButton hideRecap = new JButton("Hide");
+    /** The story the recap belongs to; the recap is hidden once another story is open. */
+    private String recapSessionId;
     final JTextArea transcript = new JTextArea();
     final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
     final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
@@ -84,6 +90,7 @@ public class StoryGUI implements StoryObserver {
     final JButton undo = new JButton("Undo");
     final JButton retry = new JButton("Retry");
     final JButton edit = new JButton("Edit");
+    final JButton endStory = new JButton("End story");
 
     // Start-a-story form (F01, F05)
     final JTextField scenarioIdea = new JTextField();
@@ -174,6 +181,12 @@ public class StoryGUI implements StoryObserver {
 
     protected void showMessage(String message) {
         JOptionPane.showMessageDialog(root, message, "Storyteller", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** Asks a yes/no question; true for yes. */
+    protected boolean confirm(String question) {
+        return JOptionPane.showConfirmDialog(root, question, "Storyteller", JOptionPane.YES_NO_OPTION)
+                == JOptionPane.YES_OPTION;
     }
 
     /** Asks for the replacement narration in an editable box; null if the user cancels. */
@@ -285,6 +298,7 @@ public class StoryGUI implements StoryObserver {
             if (!busy) {
                 status.setText("Story " + session.getId() + ": " + session.getLoreBook().size() + " lore entries, "
                         + session.getCharacters().size() + " characters, " + session.getTurns().size() + " turns"
+                        + (session.isEnded() ? ", ended" : "")
                         + (waiting == 0 ? "" : ", " + waiting + " lore proposal" + (waiting == 1 ? "" : "s") + " waiting"));
             }
             refreshStory(session);
@@ -322,14 +336,35 @@ public class StoryGUI implements StoryObserver {
         }
         String id = chooseSession(ids);
         if (id != null) {
-            showMessage(controller.loadSession(id));
+            runInBackground("Loading the story and writing a recap...", () -> controller.loadSession(id),
+                    this::showRecap, () -> { });
         }
+    }
+
+    /** Shows what was loaded and the agent's recap at the top of the Story tab (F09). */
+    void showRecap(String text) {
+        recapSessionId = controller.getSession().getId();
+        recap.setText(text);
+        recap.setCaretPosition(0);
+        recapPanel.setVisible(true);
+        tabs.setSelectedIndex(0);
     }
 
     // ---- story tab: turns, undo, retry, edit (F04, F10) ----
 
     private Component buildStoryTab() {
         storyTitle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        recap.setEditable(false);
+        recap.setLineWrap(true);
+        recap.setWrapStyleWord(true);
+        recapPanel.setBorder(BorderFactory.createTitledBorder("Welcome back: the story so far"));
+        recapPanel.add(new JScrollPane(recap), BorderLayout.CENTER);
+        recapPanel.add(buttons(hideRecap), BorderLayout.EAST);
+        recapPanel.setVisible(false);
+        hideRecap.addActionListener(e -> recapPanel.setVisible(false));
+        JPanel north = new JPanel(new BorderLayout(4, 4));
+        north.add(storyTitle, BorderLayout.NORTH);
+        north.add(recapPanel, BorderLayout.CENTER);
         transcript.setEditable(false);
         transcript.setLineWrap(true);
         transcript.setWrapStyleWord(true);
@@ -349,7 +384,7 @@ public class StoryGUI implements StoryObserver {
 
         JPanel lastTurn = new JPanel(new BorderLayout());
         lastTurn.add(used, BorderLayout.CENTER);
-        lastTurn.add(buttons(undo, retry, edit), BorderLayout.EAST);
+        lastTurn.add(buttons(undo, retry, edit, endStory), BorderLayout.EAST);
 
         input.setLineWrap(true);
         input.setWrapStyleWord(true);
@@ -366,10 +401,11 @@ public class StoryGUI implements StoryObserver {
         undo.addActionListener(e -> act(this::undoTurn));
         retry.addActionListener(e -> act(this::retryTurn));
         edit.addActionListener(e -> act(this::editTurn));
+        endStory.addActionListener(e -> act(this::endStory));
 
         JPanel p = new JPanel(new BorderLayout(4, 4));
         p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        p.add(storyTitle, BorderLayout.NORTH);
+        p.add(north, BorderLayout.NORTH);
         p.add(new JScrollPane(transcript), BorderLayout.CENTER);
         p.add(south, BorderLayout.SOUTH);
         return p;
@@ -378,6 +414,9 @@ public class StoryGUI implements StoryObserver {
     private void refreshStory(StorySession session) {
         Scenario sc = session.getScenario();
         storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : sc.getTitle());
+        if (!session.getId().equals(recapSessionId)) {
+            recapPanel.setVisible(false);
+        }
         StringBuilder sb = new StringBuilder();
         if (sc != null && !sc.getOpeningSituation().isEmpty()) {
             sb.append(sc.getOpeningSituation()).append("\n\n");
@@ -385,6 +424,15 @@ public class StoryGUI implements StoryObserver {
         for (Turn t : session.getTurns()) {
             sb.append("> ").append(t.getModeName()).append(": ").append(t.getUserInput()).append("\n\n")
                     .append(t.getNarration()).append("\n\n");
+            for (String w : t.getWarnings()) {
+                sb.append("[Warning: ").append(w).append("]\n");
+            }
+            if (!t.getWarnings().isEmpty()) {
+                sb.append('\n');
+            }
+        }
+        if (session.isEnded()) {
+            sb.append("* * *\n\n").append(session.getEnding()).append("\n\nTHE END");
         }
         transcript.setText(sb.toString().strip());
         transcript.setCaretPosition(transcript.getDocument().getLength());
@@ -400,14 +448,15 @@ public class StoryGUI implements StoryObserver {
 
     /** Turn controls are usable only for a started story; undo, retry and edit only when they apply. */
     private void refreshStoryControls() {
-        boolean started = controller.isStarted();
-        boolean hasTurn = started && controller.getSession().lastTurn().isPresent();
-        input.setEnabled(started && !busy);
-        modeChoice.setEnabled(started && !busy);
-        send.setEnabled(started && !busy);
-        undo.setEnabled(controller.canUndo() && !busy);
-        retry.setEnabled(controller.canUndo() && !busy);
-        edit.setEnabled(hasTurn && !busy);
+        boolean ongoing = controller.isStarted() && !controller.isEnded() && !busy;
+        input.setEnabled(ongoing);
+        modeChoice.setEnabled(ongoing);
+        send.setEnabled(ongoing);
+        undo.setEnabled(ongoing && controller.canUndo());
+        retry.setEnabled(ongoing && controller.canUndo());
+        edit.setEnabled(ongoing && controller.canEnd());
+        endStory.setEnabled(controller.canEnd() && !busy);
+        endStory.setText(controller.isEnded() ? "Rewrite ending" : "End story");
     }
 
     void submitInput() {
@@ -416,8 +465,10 @@ public class StoryGUI implements StoryObserver {
         if (text.isBlank()) {
             throw new IllegalArgumentException("Type something for the turn first.");
         }
-        runInBackground("The storyteller is writing...", () -> controller.submitTurn(text, mode),
-                turn -> input.setText(""), () -> { });
+        runInBackground("The storyteller is writing...", () -> controller.submitTurn(text, mode), turn -> {
+            input.setText("");
+            offerEnding();
+        }, () -> { });
     }
 
     void undoTurn() {
@@ -426,7 +477,7 @@ public class StoryGUI implements StoryObserver {
 
     void retryTurn() {
         Turn last = controller.getSession().lastTurn().orElseThrow(() -> new IllegalStateException("There is no turn to retry."));
-        runInBackground("The storyteller is rewriting the last turn...", controller::retryTurn, turn -> { }, () -> {
+        runInBackground("The storyteller is rewriting the last turn...", controller::retryTurn, turn -> offerEnding(), () -> {
             // The turn stays undone: give the user their input back so it can be resent.
             input.setText(last.getUserInput());
             modeChoice.setSelectedItem(last.getModeName());
@@ -439,6 +490,33 @@ public class StoryGUI implements StoryObserver {
         if (text != null) {
             controller.editTurn(text);
         }
+    }
+
+    // ---- ending (F12) ----
+
+    /** After a turn that reached the last pivotal event, the storyteller suggests ending the story. */
+    private void offerEnding() {
+        if (controller.isEndingSuggested()
+                && confirm("The story has reached its final turning point. End it now?")) {
+            writeEnding();
+        }
+    }
+
+    /** End story / Rewrite ending: asks first when events are still pending or an ending exists. */
+    void endStory() {
+        if (controller.isEnded()) {
+            if (!confirm("Write a new ending in place of the current one?")) {
+                return;
+            }
+        } else if (!controller.isReadyToEnd()
+                && !confirm("The story has not reached all of its turning points yet. End it here anyway?")) {
+            return;
+        }
+        writeEnding();
+    }
+
+    private void writeEnding() {
+        runInBackground("The storyteller is writing the ending...", controller::requestEnding, ending -> { }, () -> { });
     }
 
     private void openLoreEntry(String id) {

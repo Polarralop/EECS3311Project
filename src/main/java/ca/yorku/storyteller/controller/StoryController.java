@@ -5,6 +5,7 @@ import ca.yorku.storyteller.agent.InputModeStrategy;
 import ca.yorku.storyteller.agent.SayModeStrategy;
 import ca.yorku.storyteller.agent.StoryAgent;
 import ca.yorku.storyteller.agent.StoryModeStrategy;
+import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
 import ca.yorku.storyteller.model.LoreEntry;
 import ca.yorku.storyteller.model.LoreProposal;
@@ -33,7 +34,6 @@ import java.util.Map;
  *
  * <p>Features: F01-F12.
  * <p>Patterns: MVC (Controller), Command (Client), Facade (Client).
- * <p>TODO (Stage 1 design): requestEnding() (F12).
  */
 public class StoryController {
 
@@ -46,6 +46,8 @@ public class StoryController {
     /** The input modes the user can pick, by lower-case name (Strategy: the controller selects one). */
     private final Map<String, InputModeStrategy> modes = new LinkedHashMap<>();
     private StorySession session;
+    /** True when the latest turn reached the final pivotal event, so the front ends offer an ending (F12). */
+    private boolean endingSuggested;
 
     public StoryController(SessionRepository repository, StoryAgent agent) {
         this.repository = repository;
@@ -141,18 +143,21 @@ public class StoryController {
      * turn is added to the story.
      *
      * @throws IllegalArgumentException if the input is empty or the mode is unknown
-     * @throws IllegalStateException if no story has been started
+     * @throws IllegalStateException if no story has been started, or it has ended
      * @throws ca.yorku.storyteller.llm.LLMException if Claude declines or the call fails; no turn is added
      */
     public Turn submitTurn(String input, String modeName) {
-        StorySession s = requireStarted();
+        StorySession s = requireOngoing();
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Type something for the turn first.");
         }
         SubmitTurnCommand command = new SubmitTurnCommand(s, agent, input, mode(modeName));
         int proposalsBefore = s.getProposals().size();
+        boolean readyBefore = agent.readyToEnd(s);
+        endingSuggested = false;
         try {
             history.run(command);
+            endingSuggested = !readyBefore && agent.readyToEnd(s);
         } catch (RuntimeException e) {
             // Proposals raised before the failure stay pending (as for an undone turn), so show them.
             if (s.getProposals().size() != proposalsBefore) {
@@ -168,10 +173,11 @@ public class StoryController {
      * Undoes the most recent action: a turn is removed and the pivotal events go back to how they were
      * before it; an edit gets its original narration back.
      *
-     * @throws IllegalStateException if there is nothing to undo (for example right after a load)
+     * @throws IllegalStateException if there is nothing to undo (for example right after a load) or the story has ended
      */
     public void undoTurn() {
         StorySession s = requireSession();
+        requireNotEnded(s);
         if (!history.canUndo()) {
             throw new IllegalStateException("There is nothing to undo.");
         }
@@ -184,19 +190,22 @@ public class StoryController {
      * with it. If the new attempt fails, the turn stays undone and the error is passed on, so the front
      * end can give the user their input back.
      *
-     * @throws IllegalStateException if there is no turn to retry
+     * @throws IllegalStateException if there is no turn to retry, or the story has ended
      */
     public Turn retryTurn() {
-        StorySession s = requireStarted();
+        StorySession s = requireOngoing();
         SubmitTurnCommand last = history.latest(SubmitTurnCommand.class)
                 .orElseThrow(() -> new IllegalStateException("There is no turn to retry."));
         while (history.peekLast().orElseThrow() != last) {
             history.undoLast();
         }
         history.undoLast();
+        boolean readyBefore = agent.readyToEnd(s);
+        endingSuggested = false;
         SubmitTurnCommand again = new SubmitTurnCommand(s, agent, last.getInput(), last.getMode());
         try {
             history.run(again);
+            endingSuggested = !readyBefore && agent.readyToEnd(s);
         } finally {
             s.notifyObservers();
         }
@@ -207,10 +216,10 @@ public class StoryController {
      * Replaces the narration of the most recent turn with the user's text, as an undoable command.
      *
      * @throws IllegalArgumentException if the text is empty; the narration is unchanged
-     * @throws IllegalStateException if the story has no turns
+     * @throws IllegalStateException if the story has no turns, or it has ended
      */
     public void editTurn(String newNarration) {
-        StorySession s = requireStarted();
+        StorySession s = requireOngoing();
         if (newNarration == null || newNarration.isBlank()) {
             throw new IllegalArgumentException("The narration cannot be empty. Undo the turn instead if you want it gone.");
         }
@@ -224,6 +233,54 @@ public class StoryController {
             throw new IllegalArgumentException("Unknown mode \"" + name + "\". Use " + String.join(", ", modeNames()) + ".");
         }
         return m;
+    }
+
+    // ---- ending (F12) ----
+
+    /** True when the story is started and has at least one turn, so an ending can be written. */
+    public boolean canEnd() {
+        return isStarted() && session.lastTurn().isPresent();
+    }
+
+    /**
+     * True when every pivotal event has been reached. When it is false, the front ends ask the user to
+     * confirm before ending early. The events themselves are never returned.
+     */
+    public boolean isReadyToEnd() {
+        return isStarted() && agent.readyToEnd(session);
+    }
+
+    /**
+     * True right after a turn (or retry) that reached the last pivotal event: the agent suggests ending
+     * the story, and the front end asks the user, who may accept or dismiss it.
+     */
+    public boolean isEndingSuggested() {
+        return endingSuggested && isStarted() && !session.isEnded();
+    }
+
+    public boolean isEnded() {
+        return session != null && session.isEnded();
+    }
+
+    /**
+     * Has the agent write the story's ending and stores it, which closes the story to further turns.
+     * Asked again on an ended story, it writes a new ending in place of the old one. The front end asks
+     * the user to confirm first when {@link #isReadyToEnd()} is false.
+     *
+     * @return the closing passage
+     * @throws IllegalStateException if the story is not started or has no turns yet
+     * @throws ca.yorku.storyteller.llm.LLMException if Claude declines or the call fails; nothing changes
+     */
+    public String requestEnding() {
+        StorySession s = requireStarted();
+        if (s.lastTurn().isEmpty()) {
+            throw new IllegalStateException("Take at least one turn before ending the story.");
+        }
+        String ending = agent.generateEnding(s);
+        s.setEnding(ending);
+        endingSuggested = false;
+        s.notifyObservers();
+        return s.getEnding();
     }
 
     // ---- lore proposals (F07) ----
@@ -342,16 +399,26 @@ public class StoryController {
     }
 
     /**
-     * Loads a saved story and makes it current. The undo history starts empty.
+     * Loads a saved story and makes it current, then has the agent write a recap of the story so far
+     * (F09). The undo history starts empty. If the recap fails, the story is still loaded and the
+     * message says why there is no recap.
      *
-     * @return a short recap to show the user
+     * @return what to show the user: what was loaded, then the recap when the story has turns
      * @throws IllegalArgumentException if there is no such save; the current story stays open
+     * @throws java.io.UncheckedIOException if the save is damaged; the current story stays open
      */
     public String loadSession(String id) {
         StorySession loaded = repository.load(id);
         switchTo(loaded);
-        // TODO (F09): replace with StoryAgent.recap(session) once the agent is wired in.
-        return describe(loaded);
+        String loadedLine = describe(loaded);
+        if (loaded.getTurns().isEmpty()) {
+            return loadedLine;
+        }
+        try {
+            return loadedLine + "\n\nThe story so far: " + agent.recap(loaded);
+        } catch (LLMException e) {
+            return loadedLine + "\n\n(No recap this time: " + e.getMessage() + ")";
+        }
     }
 
     public List<String> listSessions() {
@@ -366,6 +433,7 @@ public class StoryController {
         }
         session = next;
         history.clear();
+        endingSuggested = false;
         for (StoryObserver o : observers) {
             session.attach(o);
         }
@@ -385,6 +453,19 @@ public class StoryController {
             throw new IllegalStateException("Start the story first.");
         }
         return s;
+    }
+
+    /** A started story that has not ended: turns, undo, retry and edit need one. */
+    private StorySession requireOngoing() {
+        StorySession s = requireStarted();
+        requireNotEnded(s);
+        return s;
+    }
+
+    private static void requireNotEnded(StorySession s) {
+        if (s.isEnded()) {
+            throw new IllegalStateException("The story has ended. Use End story to rewrite the ending, or start or load another story.");
+        }
     }
 
     private StorySession requireSession() {

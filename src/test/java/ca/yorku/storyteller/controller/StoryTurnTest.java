@@ -30,6 +30,9 @@ class StoryTurnTest {
     @TempDir
     Path dir;
 
+    /** The consistency check's answer when nothing is contradicted (the story has a pinned entry, F08). */
+    private static final LLMResponse CLEAN = LLMResponse.ofText("{\"contradictions\": []}");
+
     private final FakeLLMClient llm = new FakeLLMClient();
     private StoryController controller;
     private StorySession session;
@@ -49,7 +52,7 @@ class StoryTurnTest {
     @Test
     void submitTurnAddsTheNarratedTurnAndNotifiesOnce() {
         llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("a", "search_lore", Map.of("query", "ashfall")))))
-                .enqueue(LLMResponse.ofText("Snow falls."));
+                .enqueue(LLMResponse.ofText("Snow falls.")).enqueue(CLEAN);
         Turn t = controller.submitTurn("look up", "do");
         assertEquals("Snow falls.", t.getNarration());
         assertEquals("Do", t.getModeName());
@@ -61,7 +64,7 @@ class StoryTurnTest {
 
     @Test
     void theModeIsPickedByNameIgnoringCase() {
-        llm.enqueue(LLMResponse.ofText("A."));
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
         assertEquals("Say", controller.submitTurn("hi", " SAY ").getModeName());
         assertEquals(List.of("Do", "Say", "Story"), controller.modeNames());
     }
@@ -92,7 +95,7 @@ class StoryTurnTest {
 
     @Test
     void undoRemovesTheTurnAndRestoresThePlotAsItWas() {
-        llm.enqueue(LLMResponse.ofText("A."));
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
         controller.submitTurn("hi", "do");
         session.getPlot().markReached("E1");
         controller.undoTurn();
@@ -104,21 +107,45 @@ class StoryTurnTest {
     }
 
     @Test
+    void theModelSteersThePlotThroughUpdatePlotAndUndoPutsItBack() {
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "reached", "event_id", "E1")))))
+                .enqueue(LLMResponse.ofText("A thief vanishes with the letter.")).enqueue(CLEAN);
+        controller.submitTurn("guard the letter", "do");
+        assertEquals(EventStatus.REACHED, session.getPlot().getEvents().get(0).getStatus());
+        String guidance = llm.getRequests().get(1).getMessages().get(0).getText();
+        assertTrue(guidance.contains("Next pivotal event (E1)"), "the next event is in the hidden guidance");
+
+        controller.undoTurn();
+        assertEquals(EventStatus.PENDING, session.getPlot().getEvents().get(0).getStatus());
+    }
+
+    @Test
+    void aRevisionDuringAFailedTurnIsRolledBack() {
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(new LLMToolCall("u", "update_plot",
+                        Map.of("action", "revise", "new_events", "[\"The courier turns thief.\"]")))))
+                .enqueueFailure(new LLMException("overloaded"));
+        assertThrows(LLMException.class, () -> controller.submitTurn("burn the letter", "do"));
+        assertEquals(2, session.getPlot().getEvents().size());
+        assertTrue(session.getPlot().getEvents().stream().allMatch(e -> e.getStatus() == EventStatus.PENDING));
+    }
+
+    @Test
     void retryReplacesTheLastTurnFromTheSameInputAndMode() {
-        llm.enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofText("Second."));
+        llm.enqueue(LLMResponse.ofText("First.")).enqueue(CLEAN).enqueue(LLMResponse.ofText("Second.")).enqueue(CLEAN);
         controller.submitTurn("open the gate", "say");
         Turn again = controller.retryTurn();
         assertEquals("Second.", again.getNarration());
         assertEquals("Say", again.getModeName());
         assertEquals("open the gate", again.getUserInput());
         assertEquals(List.of(again), session.getTurns());
-        assertTrue(llm.getRequests().get(llm.getRequests().size() - 1).getMessages().get(0).getText()
+        assertTrue(llm.getRequests().get(llm.getRequests().size() - 2).getMessages().get(0).getText()
                 .contains("says, aloud: \"open the gate\""));
     }
 
     @Test
     void aFailedRetryLeavesTheTurnUndone() {
-        llm.enqueue(LLMResponse.ofText("First.")).enqueue(LLMResponse.ofRefusal());
+        llm.enqueue(LLMResponse.ofText("First.")).enqueue(CLEAN).enqueue(LLMResponse.ofRefusal());
         controller.submitTurn("open the gate", "do");
         notifications.clear();
         assertThrows(LLMException.class, () -> controller.retryTurn());
@@ -134,11 +161,39 @@ class StoryTurnTest {
 
     @Test
     void undoHistoryIsClearedWhenAStoryIsLoaded() {
-        llm.enqueue(LLMResponse.ofText("A."));
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
         controller.submitTurn("hi", "do");
         controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("Mira said hi at the gate."));
         controller.loadSession(session.getId());
         assertFalse(controller.canUndo());
         assertEquals(1, controller.getSession().getTurns().size());
+    }
+
+    @Test
+    void loadingAStoryWithTurnsShowsTheAgentsRecap() {
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
+        controller.submitTurn("knock", "do");
+        controller.saveSession();
+        llm.enqueue(LLMResponse.ofText("  You knocked at the gate of Ashfall.  "));
+        String shown = controller.loadSession(session.getId());
+
+        assertEquals("Loaded \"Ashfall\": 1 lore entries, 0 characters, 1 turns.\n\n"
+                + "The story so far: You knocked at the gate of Ashfall.", shown);
+        String sent = llm.getRequests().get(llm.getRequests().size() - 1).getMessages().get(0).getText();
+        assertTrue(sent.contains("Turn 1 (Do): knock\nA."));
+        assertFalse(sent.contains("The letter is stolen"), "the recap never sees the hidden plan");
+    }
+
+    @Test
+    void aFailedRecapStillLoadsTheStory() {
+        llm.enqueue(LLMResponse.ofText("A.")).enqueue(CLEAN);
+        controller.submitTurn("knock", "do");
+        controller.saveSession();
+        controller.newSession();
+        llm.enqueueFailure(new LLMException("Could not reach Claude."));
+        String shown = controller.loadSession(session.getId());
+        assertEquals(session.getId(), controller.getSession().getId());
+        assertTrue(shown.endsWith("(No recap this time: Could not reach Claude.)"));
     }
 }

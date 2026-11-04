@@ -31,3 +31,9 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 
 | # | Commit | Summary | Features |
 |---|---|---|---|
+| 1 | [53dcf44](https://github.com/Polarralop/EECS3311Project/commit/53dcf44) | feat(tools): steer the hidden plot with UpdatePlotTool | F06 |
+| 2 | [bf3e57d](https://github.com/Polarralop/EECS3311Project/commit/bf3e57d) | feat(agent): flag contradictions with pinned lore in ConsistencyChecker | F08 |
+| 3 | [d80ffd1](https://github.com/Polarralop/EECS3311Project/commit/d80ffd1) | feat(agent): summarize older turns in MemoryManager | F09 |
+| 4 | [62b5881](https://github.com/Polarralop/EECS3311Project/commit/62b5881) | feat(controller): show a model-written recap when a story is loaded | F09, F11 |
+| 5 | [0de62b7](https://github.com/Polarralop/EECS3311Project/commit/0de62b7) | feat(agent): write the story's ending in StoryAgent.generateEnding | F12 |
+| 6 | [c242f87](https://github.com/Polarralop/EECS3311Project/commit/c242f87) | feat(ui): end the story from StoryGUI and StoryCLI | F12 (GUI, CLI) |
