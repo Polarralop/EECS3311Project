@@ -266,22 +266,22 @@ class StoryGUITest {
                 .getListCellRendererComponent(g.savedStoryList, listed, 0, false, false);
         String html = ((javax.swing.JLabel) cell).getText();
         assertFalse(html.contains(id), "the id is not shown");
-        assertTrue(html.contains("<font color='#808080'>Saved "
+        assertTrue(html.contains("<font color='" + StoryGUI.savedColour(false) + "'>Saved "
                 + StoryGUI.savedLabel(listed.savedAt(), java.time.ZoneId.systemDefault()) + "</font>"), html);
         assertEquals(0, g.savedStoryList.getSelectedIndex(), "the newest story is selected");
 
         onEdt(() -> g.openStory.doClick());
         assertFalse(g.isShowingHome());
         assertEquals(id, fresh.getSession().getId());
-        assertEquals("A courier carries a forbidden letter", g.tabs.getTitleAt(0));
+        assertEquals("A courier carries a forbidden letter", g.storyHeading.getText());
         assertTrue(g.transcript.getText().startsWith("Mira waits at the gate."));
         assertTrue(g.errors.isEmpty(), g.errors.toString());
     }
 
     @Test
-    void theStoryTabIsNamedAfterTheStoryAndALongTitleIsCut() throws Exception {
+    void theHeadingNamesTheStoryAndALongTitleIsWholeInItsTooltip() throws Exception {
         onEdt(() -> controller.newSession());
-        assertEquals("Untitled story", gui.tabs.getTitleAt(0), "a story prepared before its scenario");
+        assertEquals("Untitled story", gui.storyHeading.getText(), "a story prepared before its scenario");
         assertTrue(gui.storyTitle.isVisible() && gui.storyTitle.getText().startsWith("Story not started yet"));
         llm.enqueue(LLMResponse.ofText(PLAN));
         String longTitle = "The Very Long and Winding Road to the Ember Gate of Ashfall";
@@ -291,9 +291,8 @@ class StoryGUITest {
             gui.scenarioSetting.setText("Snow.");
             gui.startButton.doClick();
         });
-        assertEquals("The Very Long and Winding Road to the...", gui.tabs.getTitleAt(0));
-        assertTrue(gui.tabs.getTitleAt(0).length() <= StoryGUI.TAB_TITLE_LENGTH);
-        assertEquals(longTitle, gui.tabs.getToolTipTextAt(0));
+        assertEquals(longTitle, gui.storyHeading.getText());
+        assertEquals(longTitle, gui.storyHeading.getToolTipText());
     }
 
     @Test
@@ -380,7 +379,7 @@ class StoryGUITest {
             gui.startButton.doClick();
         });
         assertTrue(controller.isStarted());
-        assertEquals("Ember Road", gui.tabs.getTitleAt(0), "the first tab is named after the story");
+        assertEquals("Ember Road", gui.storyHeading.getText(), "the heading names the story");
         assertFalse(gui.storyTitle.isVisible());
         assertEquals("At the gate.", gui.transcript.getText());
         assertTrue(gui.send.isEnabled());
@@ -418,6 +417,7 @@ class StoryGUITest {
         });
         assertTrue(gui.transcript.getText().endsWith("> Say: Open up!\n\nSnow settles on the gate."));
         assertEquals("Ashfall", gui.usedLoreItems.get(0).getTitle());
+        assertFalse(gui.usedLoreEmpty.isVisible(), "the empty note gives way to the list");
         assertEquals("", gui.input.getText());
         assertTrue(gui.undo.isEnabled() && gui.retry.isEnabled() && gui.edit.isEnabled());
     }
@@ -566,6 +566,8 @@ class StoryGUITest {
         });
         assertEquals(2, gui.proposalItems.size());
         assertTrue(gui.status.getText().contains("2 lore proposals waiting"));
+        assertEquals("Proposals (2)", gui.sidebarTabs.getTitleAt(StoryGUI.PROPOSALS_TAB));
+        assertTrue(gui.approve.isEnabled());
 
         onEdt(() -> {
             gui.proposalList.setSelectedIndex(0);
@@ -582,5 +584,56 @@ class StoryGUITest {
         assertEquals(List.of("Select a proposal first."), gui.errors);
         assertEquals(0, gui.proposalItems.size());
         assertEquals(1, controller.searchLore("").size());
+        assertEquals("Proposals", gui.sidebarTabs.getTitleAt(StoryGUI.PROPOSALS_TAB));
+        assertFalse(gui.approve.isEnabled(), "nothing left to approve");
+    }
+
+    @Test
+    void theSidebarHoldsLoreCharactersAndTheLoreUsedThisTurn() throws Exception {
+        startFromTheForm();
+        assertTrue(gui.isSidebarOpen(), "the sidebar starts open");
+        assertEquals(List.of("Lore", "Characters", "Proposals"), List.of(gui.sidebarTabs.getTitleAt(0),
+                gui.sidebarTabs.getTitleAt(1), gui.sidebarTabs.getTitleAt(2)));
+        assertTrue(SwingUtilities.isDescendingFrom(gui.loreList, gui.sidebar));
+        assertTrue(SwingUtilities.isDescendingFrom(gui.characterList, gui.sidebar));
+        assertTrue(SwingUtilities.isDescendingFrom(gui.proposalList, gui.sidebar));
+        assertTrue(SwingUtilities.isDescendingFrom(gui.usedLoreList, gui.sidebar), "lore used this turn lives in the sidebar");
+        assertFalse(SwingUtilities.isDescendingFrom(gui.transcript, gui.sidebar));
+        assertTrue(gui.usedLoreEmpty.isVisible(), "no turn yet, so a note instead of an empty list");
+    }
+
+    @Test
+    void theSidebarCollapsesAndCountsWaitingProposalsWhileCollapsed() throws Exception {
+        startFromTheForm();
+        onEdt(() -> gui.sidebarToggle.doClick());
+        assertFalse(gui.isSidebarOpen());
+        assertEquals("\u00ab Lore & characters", gui.sidebarToggle.getText());
+        llm.enqueue(LLMResponse.ofToolCalls("", List.of(
+                        new LLMToolCall("a", "propose_lore", Map.of("title", "Grey Snow", "content", "It never melts.")))))
+                .enqueue(LLMResponse.ofText("Snow falls."));
+        onEdt(() -> {
+            gui.input.setText("look up");
+            gui.send.doClick();
+        });
+        assertFalse(gui.isSidebarOpen(), "a turn does not reopen the sidebar");
+        assertEquals("\u00ab Lore & characters (1)", gui.sidebarToggle.getText());
+        onEdt(() -> gui.sidebarToggle.doClick());
+        assertTrue(gui.isSidebarOpen());
+        assertEquals("Hide lore & characters \u00bb", gui.sidebarToggle.getText());
+    }
+
+    @Test
+    void openingALoreEntryBringsBackACollapsedSidebarOnTheLoreTab() throws Exception {
+        onEdt(() -> {
+            controller.newSession();
+            controller.saveLoreEntry(new ca.yorku.storyteller.model.LoreEntry(null, "Ashfall", "A city.", List.of(), true));
+            gui.sidebarTabs.setSelectedIndex(StoryGUI.CHARACTERS_TAB);
+            gui.setSidebarOpen(false);
+            gui.openLoreEntry("L1");
+        });
+        assertTrue(gui.isSidebarOpen());
+        assertEquals(StoryGUI.LORE_TAB, gui.sidebarTabs.getSelectedIndex());
+        assertEquals("Ashfall", gui.loreTitle.getText());
+        assertEquals("L1", gui.loreList.getSelectedValue().getId());
     }
 }
