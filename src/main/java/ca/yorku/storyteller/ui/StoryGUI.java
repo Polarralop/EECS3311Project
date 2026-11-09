@@ -82,6 +82,12 @@ public class StoryGUI implements StoryObserver {
     /** The story the recap belongs to; the recap is hidden once another story is open. */
     private String recapSessionId;
     final JTextArea transcript = new JTextArea();
+    /** How fast new story text is revealed in the transcript, in characters per second. */
+    static final int CHARS_PER_SECOND = 300;
+    /** Reveals new narration gradually instead of all at once; click the transcript to show it all. */
+    final TranscriptPacer pacer = new TranscriptPacer(transcript, CHARS_PER_SECOND);
+    /** The story the transcript shows; text is only paced while the same story stays open. */
+    private String shownSessionId;
     final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
     final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
     final JComboBox<String> modeChoice;
@@ -368,6 +374,13 @@ public class StoryGUI implements StoryObserver {
         transcript.setEditable(false);
         transcript.setLineWrap(true);
         transcript.setWrapStyleWord(true);
+        transcript.setToolTipText("Click to show the rest of the text at once.");
+        transcript.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                pacer.skip();
+            }
+        });
         usedLoreList.setVisibleRowCount(3);
         usedLoreList.setToolTipText("Double-click an entry to open it in the Lore tab.");
         usedLoreList.addMouseListener(new MouseAdapter() {
@@ -434,8 +447,10 @@ public class StoryGUI implements StoryObserver {
         if (session.isEnded()) {
             sb.append("* * *\n\n").append(session.getEnding()).append("\n\nTHE END");
         }
-        transcript.setText(sb.toString().strip());
-        transcript.setCaretPosition(transcript.getDocument().getLength());
+        // A new turn or ending extends the transcript and is revealed gradually; anything else
+        // (another story, an undo, an edit) replaces it at once.
+        pacer.show(sb.toString().strip(), session.getId().equals(shownSessionId));
+        shownSessionId = session.getId();
         usedLoreItems.clear();
         session.lastTurn().ifPresent(t -> {
             for (String id : t.getUsedLoreIds()) {
@@ -465,6 +480,7 @@ public class StoryGUI implements StoryObserver {
         if (text.isBlank()) {
             throw new IllegalArgumentException("Type something for the turn first.");
         }
+        pacer.skip();
         runInBackground("The storyteller is writing...", () -> controller.submitTurn(text, mode), turn -> {
             input.setText("");
             offerEnding();

@@ -54,6 +54,8 @@ class StoryGUITest {
 
         TestGUI(StoryController c) {
             super(c);
+            // Most tests read the transcript right after a turn, so show text at once.
+            pacer.setCharsPerSecond(0);
         }
 
         @Override
@@ -325,6 +327,24 @@ class StoryGUITest {
         assertEquals("Ashfall", gui.usedLoreItems.get(0).getTitle());
         assertEquals("", gui.input.getText());
         assertTrue(gui.undo.isEnabled() && gui.retry.isEnabled() && gui.edit.isEnabled());
+    }
+
+    @Test
+    void aNewTurnIsRevealedGraduallyAndAClickShowsTheRest() throws Exception {
+        startFromTheForm();
+        llm.enqueue(LLMResponse.ofText("Snow settles on the gate."))
+                .enqueue(LLMResponse.ofText("{\"contradictions\": []}"));
+        onEdt(() -> {
+            gui.pacer.setCharsPerSecond(StoryGUI.CHARS_PER_SECOND);
+            gui.input.setText("knock");
+            gui.send.doClick();
+            // Same event-thread task: the turn is saved but its text is not on screen yet.
+            assertEquals(1, controller.getSession().getTurns().size());
+            assertEquals("Mira waits at the gate.", gui.transcript.getText());
+            assertTrue(gui.pacer.isRevealing());
+            gui.pacer.skip();
+            assertTrue(gui.transcript.getText().endsWith("> Do: knock\n\nSnow settles on the gate."));
+        });
     }
 
     @Test

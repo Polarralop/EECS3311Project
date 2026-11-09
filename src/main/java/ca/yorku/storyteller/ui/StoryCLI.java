@@ -73,11 +73,22 @@ public class StoryCLI implements StoryObserver {
     private final BufferedReader in;
     private final PrintStream out;
     private boolean running = true;
+    /** How fast new narration is printed, in characters per second; 0 prints it at once. */
+    private final int charsPerSecond;
 
+    /** A CLI that prints everything at once (used by tests and scripts). */
     public StoryCLI(StoryController controller, BufferedReader in, PrintStream out) {
+        this(controller, in, out, 0);
+    }
+
+    /**
+     * @param charsPerSecond how fast a new turn or ending is printed; 0 or less prints it at once
+     */
+    public StoryCLI(StoryController controller, BufferedReader in, PrintStream out, int charsPerSecond) {
         this.controller = controller;
         this.in = in;
         this.out = out;
+        this.charsPerSecond = charsPerSecond;
     }
 
     /** Reads and handles commands until "quit" or the end of input. */
@@ -189,7 +200,7 @@ public class StoryCLI implements StoryObserver {
         if (controller.isStarted()) {
             out.println("The storyteller is writing...");
         }
-        printTurn(controller.submitTurn(input, mode));
+        printTurn(controller.submitTurn(input, mode), true);
         offerEnding();
     }
 
@@ -204,7 +215,7 @@ public class StoryCLI implements StoryObserver {
             printError(e.getMessage() + " The turn stays undone; your input was: " + input);
             return;
         }
-        printTurn(again);
+        printTurn(again, true);
         offerEnding();
     }
 
@@ -255,28 +266,60 @@ public class StoryCLI implements StoryObserver {
         if (controller.canEnd()) {
             out.println("The storyteller is writing the ending...");
         }
-        printEnding(controller.requestEnding());
+        printEnding(controller.requestEnding(), true);
     }
 
-    private void printEnding(String ending) {
+    private void printEnding(String ending, boolean paced) {
         out.println();
         out.println("* * *");
         out.println();
-        out.println(ending);
+        printText(ending, paced);
         out.println();
         out.println("THE END");
         out.println();
     }
 
-    private void printTurn(Turn t) {
+    /** Prints a turn; a new one ({@code paced}) is written out gradually rather than all at once. */
+    private void printTurn(Turn t, boolean paced) {
         out.println();
-        out.println(t.getNarration());
+        printText(t.getNarration(), paced);
         if (!t.getUsedLoreIds().isEmpty()) {
             List<String> used = t.getUsedLoreIds().stream().map(this::loreLabel).toList();
             out.println("(Lore used: " + String.join(", ", used) + ")");
         }
         for (String w : t.getWarnings()) {
             out.println("Warning: " + w);
+        }
+        out.println();
+    }
+
+    /**
+     * Prints text and a line break. When paced, it is written a few characters at a time at the
+     * CLI's speed, sped up so it takes at most {@link TranscriptPacer#MAX_REVEAL_MS} (the GUI's pace).
+     */
+    private void printText(String text, boolean paced) {
+        if (!paced || charsPerSecond <= 0) {
+            out.println(text);
+            return;
+        }
+        int tick = TranscriptPacer.TICK_MS;
+        int step = Math.max(Math.max(1, charsPerSecond * tick / 1000),
+                (int) Math.ceil(text.length() * (double) tick / TranscriptPacer.MAX_REVEAL_MS));
+        int i = 0;
+        try {
+            while (i < text.length()) {
+                int next = Math.min(text.length(), i + step);
+                if (next < text.length() && java.lang.Character.isHighSurrogate(text.charAt(next - 1))) {
+                    next++;
+                }
+                out.print(text.substring(i, next));
+                out.flush();
+                i = next;
+                Thread.sleep(tick);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            out.print(text.substring(i));
         }
         out.println();
     }
@@ -295,10 +338,10 @@ public class StoryCLI implements StoryObserver {
         }
         for (Turn t : s.getTurns()) {
             out.println("> " + t.getModeName() + ": " + t.getUserInput());
-            printTurn(t);
+            printTurn(t, false);
         }
         if (s.isEnded()) {
-            printEnding(s.getEnding());
+            printEnding(s.getEnding(), false);
         }
     }
 
@@ -527,7 +570,7 @@ public class StoryCLI implements StoryObserver {
     public static void main(String[] args) {
         StoryController controller = createController();
         BufferedReader stdin = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-        StoryCLI cli = new StoryCLI(controller, stdin, System.out);
+        StoryCLI cli = new StoryCLI(controller, stdin, System.out, StoryGUI.CHARS_PER_SECOND);
         controller.addObserver(cli);
         cli.run();
     }

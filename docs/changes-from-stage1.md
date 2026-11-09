@@ -176,3 +176,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC08 (main flow, 1a, 1b, 2a); `StoryController`, `StoryCLI` (end, offerEnding), `StoryGUI` (endStory, confirm, offerEnding); MVC, Observer.
 - Diagram to update: `figures/class-diagram/02-ui.png`, `03-controller.png`; SD10.
 - Commit(s): feat(ui): end the story from StoryGUI and StoryCLI
+
+## New: New story text is revealed gradually in both front ends
+- Original (Stage 1): after a turn the controller notifies the observers and the front end shows the new narration (SD04); how fast it appears is not specified, so in week 3 the whole turn appeared at once.
+- Implemented: a new package-private class `ui/TranscriptPacer` shows the GUI transcript. When the transcript only grows in the same story (a new turn, a retry, the ending), `show(text, pace)` reveals the new part a few characters every 20 ms (`tick()`) at `StoryGUI.CHARS_PER_SECOND` (300 characters a second), sped up so a reveal takes at most 10 seconds; clicking the transcript or pressing Send calls `skip()`. Loading, undoing and editing replace the text at once. `StoryCLI` takes the same speed in a new constructor `StoryCLI(controller, in, out, charsPerSecond)` and prints a new turn or ending gradually in `printText`; `turns` and the old constructor (used by tests) print at once.
+- What changed and why: the user asked for the story to appear at a readable pace rather than all at once. Real streaming from the Messages API was considered and not used: a turn is a tool-use loop whose narration is checked by `ConsistencyChecker` and committed by `SubmitTurnCommand` before it is shown, so streaming would show text that a failed or retried turn later takes back, and it would change `LLMClient`, `StoryAgent` and SD04. Pacing the display keeps every turn validated first and leaves the model, agent and controller unchanged.
+- How the user need is still met: every turn is still complete, checked and undoable before it is shown; only the display is paced.
+- Affected use cases / classes / methods / patterns: UC04 (story turn) and UC08 (ending), the display step; `StoryGUI` (refreshStory, submitInput, CHARS_PER_SECOND), `TranscriptPacer` (new), `StoryCLI` (constructor, printTurn, printEnding, printText); MVC (view only), Observer (the view still refreshes from onStoryChanged).
+- Diagram to update: `figures/class-diagram/02-ui.png` (TranscriptPacer, the StoryCLI constructor).
+- Commit(s): feat(ui): reveal new story text gradually in both front ends
