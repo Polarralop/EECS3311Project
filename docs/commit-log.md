@@ -43,3 +43,4 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 | 10 | [57725a1](https://github.com/Polarralop/EECS3311Project/commit/57725a1) | feat(ui): show when each saved story was saved instead of its id | F11 (GUI, CLI) |
 | 11 | [29010dd](https://github.com/Polarralop/EECS3311Project/commit/29010dd) | feat(ui): give StoryGUI a deep blue-purple palette with layered shades | GUI look (StoryTheme) |
 | 12 | [6af4015](https://github.com/Polarralop/EECS3311Project/commit/6af4015) | feat(ui): move lore, characters and used lore into a collapsible sidebar | F02, F03, F04, F07, F09 (GUI) |
+| 13 | [31d9c33](https://github.com/Polarralop/EECS3311Project/commit/31d9c33) | feat(ui): set New apart in the sidebar editors and rename the recap heading | F02, F03, F09 (GUI) |
