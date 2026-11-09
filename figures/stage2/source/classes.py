@@ -27,6 +27,10 @@ def ui():
         "- recapSessionId: String",
         "~ pacer: TranscriptPacer",
         "- shownSessionId: String",
+        "~ sidebar: JPanel",
+        "~ sidebarTabs: JTabbedPane",
+        "~ sidebarToggle: JButton",
+        "~ RECAP_ROWS: int = 5 {static}",
         "~ CHARS_PER_SECOND: int = 300 {static}",
     ], methods=[
         "+ StoryGUI(controller: StoryController)",
@@ -34,6 +38,12 @@ def ui():
         "~ refreshHome(): void",
         "~ openSelectedStory(): void",
         "~ isShowingHome(): boolean",
+        "- buildStoryCard(): void",
+        "- buildRecapCard(): Component",
+        "- buildSidebar(): Component",
+        "~ setSidebarOpen(open: boolean): void",
+        "~ isSidebarOpen(): boolean",
+        "~ openLoreEntry(id: String): void",
         "- refreshStory(session: StorySession): void",
         "+ onStoryChanged(session: StorySession): void",
         "+ showError(message: String): void",
@@ -94,16 +104,30 @@ def ui():
         "~ skip(): void",
         "~ isRevealing(): boolean",
     ])
-    w = max(cli.x + cli.w, pacer.x + pacer.w) + 30
+    theme = Box("StoryTheme", cli.x, pacer.y + pacer.h + 60, role="the GUI's palette: one blue-purple, layered shades", fields=[
+        "~ BASE, INSET, SURFACE, SIDEBAR, RAISED: Color {static}",
+        "~ LINE, SELECTION, ACCENT, ACCENT_SOFT: Color {static}",
+        "~ TEXT, MUTED, DISABLED: Color {static}",
+    ], methods=[
+        "~ install(): void {static}",
+        "~ primary(button: JButton): void {static}",
+        "~ plain(button: JButton): void {static}",
+        "~ quiet(button: JButton): void {static}",
+        "~ sectionLabel(text: String): JLabel {static}",
+        "~ layer(component: T, background: Color): T {static}",
+    ])
+    w = max(cli.x + cli.w, pacer.x + pacer.w, theme.x + theme.w) + 30
     obs.x = (w - obs.w) / 2
     y = pacer.y + pacer.h / 2
+    ty = theme.y + theme.h / 2
     links = [
         link(vh(gui.anchor("t"), obs.anchor("b", 0.3), 270), "real"),
         link(vh(cli.anchor("t"), obs.anchor("b", 0.7), 270), "real"),
         link([(gui.x + gui.w, y), (pacer.x, y)], "comp"),
+        link([(gui.x + gui.w, ty), (theme.x, ty)], "dep"),
     ]
-    return class_diagram("ui", "View", [obs, gui, cli, pacer], links, w,
-                         max(gui.y + gui.h, pacer.y + pacer.h) + 40)
+    return class_diagram("ui", "View", [obs, gui, cli, pacer, theme], links, w,
+                         max(gui.y + gui.h, pacer.y + pacer.h, theme.y + theme.h) + 40)
 
 
 def controller():
