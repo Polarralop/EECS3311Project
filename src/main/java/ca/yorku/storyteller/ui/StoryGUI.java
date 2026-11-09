@@ -1142,6 +1142,7 @@ public class StoryGUI implements StoryObserver {
     public static void main(String[] args) {
         StoryController controller = StoryCLI.createController();
         SwingUtilities.invokeLater(() -> {
+            StoryTheme.install();
             StoryGUI gui = new StoryGUI(controller);
             controller.addObserver(gui);
             gui.open();
