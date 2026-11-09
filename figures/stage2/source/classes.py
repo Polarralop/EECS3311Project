@@ -25,9 +25,16 @@ def ui():
         "- busy: boolean",
         "~ recap: JTextArea",
         "- recapSessionId: String",
+        "~ pacer: TranscriptPacer",
+        "- shownSessionId: String",
+        "~ CHARS_PER_SECOND: int = 300 {static}",
     ], methods=[
         "+ StoryGUI(controller: StoryController)",
         "+ open(): void",
+        "~ refreshHome(): void",
+        "~ openSelectedStory(): void",
+        "~ isShowingHome(): boolean",
+        "- refreshStory(session: StorySession): void",
         "+ onStoryChanged(session: StorySession): void",
         "+ showError(message: String): void",
         "~ submitInput(): void",
@@ -45,6 +52,7 @@ def ui():
         "~ save(): void",
         "~ load(): void",
         "~ showRecap(text: String): void",
+        "# chooseSession(stories: List<StoryChoice>): String",
         "# confirm(question: String): boolean",
         "# askNarration(current: String): String",
         "# openStartForm(): void",
@@ -52,8 +60,10 @@ def ui():
     ])
     cli = Box("StoryCLI", gui.x + gui.w + 50, 330, role="MVC: view · Observer: concrete observer", fields=[
         "- controller: StoryController",
+        "- charsPerSecond: int",
     ], methods=[
         "+ StoryCLI(controller, in: BufferedReader, out: PrintStream)",
+        "+ StoryCLI(controller, in, out, charsPerSecond: int)",
         "+ run(): void",
         "+ handleCommand(line: String): void",
         "+ printError(message: String): void",
@@ -64,19 +74,36 @@ def ui():
         "- edit(): void",
         "- offerEnding(): void",
         "- end(): void",
-        "- printEnding(ending: String): void",
-        "- printTurn(turn: Turn): void",
+        "- printStartScreen(): void",
+        "- printEnding(ending: String, paced: boolean): void",
+        "- printTurn(turn: Turn, paced: boolean): void",
+        "- printText(text: String, paced: boolean): void",
         "- printProposals(): void",
         "- load(id: String): void",
         "~ createController(): StoryController {static}",
     ])
-    w = cli.x + cli.w + 30
+    pacer = Box("TranscriptPacer", cli.x, cli.y + cli.h + 70, role="paces new text on screen only", fields=[
+        "- target: String",
+        "- shown: int",
+        "~ TICK_MS: int = 20 {static}",
+        "~ MAX_REVEAL_MS: int = 10000 {static}",
+    ], methods=[
+        "~ TranscriptPacer(area: JTextArea, charsPerSecond: int)",
+        "~ show(text: String, pace: boolean): void",
+        "~ tick(): void",
+        "~ skip(): void",
+        "~ isRevealing(): boolean",
+    ])
+    w = max(cli.x + cli.w, pacer.x + pacer.w) + 30
     obs.x = (w - obs.w) / 2
+    y = pacer.y + pacer.h / 2
     links = [
         link(vh(gui.anchor("t"), obs.anchor("b", 0.3), 270), "real"),
         link(vh(cli.anchor("t"), obs.anchor("b", 0.7), 270), "real"),
+        link([(gui.x + gui.w, y), (pacer.x, y)], "comp"),
     ]
-    return class_diagram("ui", "View", [obs, gui, cli], links, w, gui.y + gui.h + 40)
+    return class_diagram("ui", "View", [obs, gui, cli, pacer], links, w,
+                         max(gui.y + gui.h, pacer.y + pacer.h) + 40)
 
 
 def controller():
@@ -117,6 +144,7 @@ def controller():
         "+ saveSession(): void",
         "+ loadSession(id: String): String",
         "+ listSessions(): List<String>",
+        "+ listSavedStories(): Map<String, String>",
     ])
     hist = Box("CommandHistory", sc.x + sc.w + 70, 90, role="Command: invoker", fields=[
         "- done: Deque<StoryCommand>",
@@ -176,6 +204,7 @@ def model_story_and_lore():
         "- nextProposalNumber: int",
         "- ending: String",
         "- observers: List<StoryObserver> {transient}",
+        "+ UNTITLED: String = \"Untitled story\" {static}",
     ], methods=[
         "+ addTurn(turn: Turn): void",
         "+ removeLastTurn(): Turn",
@@ -197,6 +226,7 @@ def model_story_and_lore():
         "+ attach(observer: StoryObserver): void",
         "+ detach(observer: StoryObserver): void",
         "+ notifyObservers(): void",
+        "+ getTitle(): String",
     ])
     row = ss.y + ss.h + 110
     turn = Box("Turn", 30, row, fields=[

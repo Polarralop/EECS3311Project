@@ -50,7 +50,7 @@ mvn compile exec:java@cli
 > save
 ```
 
-In the GUI, use Story > Load... and pick `sample-ashfall`, then the Lore and Characters tabs. Type `help` in the CLI for every command.
+In the GUI, pick `sample-ashfall` on the start screen (or use Story > Load...), then the Lore and Characters tabs. Type `help` in the CLI for every command.
 
 ## Project documents
 

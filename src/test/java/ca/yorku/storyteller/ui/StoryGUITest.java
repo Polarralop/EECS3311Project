@@ -42,6 +42,8 @@ class StoryGUITest {
         final List<String> errors = new ArrayList<>();
         final List<String> messages = new ArrayList<>();
         String sessionToPick;
+        List<StoryChoice> offeredStories;
+        int startFormOpened;
         /** Answers to yes/no questions, in order; the questions are recorded. */
         final java.util.ArrayDeque<Boolean> answers = new java.util.ArrayDeque<>();
         final List<String> questions = new ArrayList<>();
@@ -69,7 +71,8 @@ class StoryGUITest {
         }
 
         @Override
-        protected String chooseSession(List<String> ids) {
+        protected String chooseSession(List<StoryChoice> stories) {
+            offeredStories = stories;
             return sessionToPick;
         }
 
@@ -82,6 +85,7 @@ class StoryGUITest {
 
         @Override
         protected void openStartForm() {
+            startFormOpened++;
         }
 
         /** Model calls run straight away on the test's thread instead of a SwingWorker. */
@@ -225,6 +229,77 @@ class StoryGUITest {
         assertFalse(gui.recapPanel.isVisible(), "the recap belongs to the loaded story");
     }
 
+    // ---- start screen and story tab title (F01, F11) ----
+
+    @Test
+    void withNoSavesTheAppOpensToNoStoriesDetectedAndCreateStory() throws Exception {
+        assertTrue(gui.isShowingHome(), "no story tabs before a story is open");
+        assertEquals("No stories detected", gui.homeHeading.getText());
+        assertEquals(null, gui.openStory.getParent(), "only Create story... is offered");
+        assertTrue(gui.createStory.getParent() != null);
+        onEdt(() -> gui.createStory.doClick());
+        assertEquals(1, gui.startFormOpened);
+        startFromTheForm();
+        assertFalse(gui.isShowingHome(), "starting a story opens its tabs");
+    }
+
+    @Test
+    void withSavesTheAppOpensToSelectStoryAndOpensThePickedOne() throws Exception {
+        startFromTheForm();
+        onEdt(() -> gui.act(gui::save));
+        String id = controller.getSession().getId();
+        StoryController fresh = new StoryController(new JsonSessionRepository(dir), StoryAgent.create(llm));
+        TestGUI[] second = new TestGUI[1];
+        onEdt(() -> {
+            second[0] = new TestGUI(fresh);
+            fresh.addObserver(second[0]);
+        });
+        TestGUI g = second[0];
+        assertTrue(g.isShowingHome());
+        assertEquals("Select story", g.homeHeading.getText());
+        assertEquals(List.of(new StoryGUI.StoryChoice(id, "A courier carries a forbidden letter")),
+                java.util.Collections.list(g.savedStoryItems.elements()));
+        assertEquals(0, g.savedStoryList.getSelectedIndex(), "the newest story is selected");
+
+        onEdt(() -> g.openStory.doClick());
+        assertFalse(g.isShowingHome());
+        assertEquals(id, fresh.getSession().getId());
+        assertEquals("A courier carries a forbidden letter", g.tabs.getTitleAt(0));
+        assertTrue(g.transcript.getText().startsWith("Mira waits at the gate."));
+        assertTrue(g.errors.isEmpty(), g.errors.toString());
+    }
+
+    @Test
+    void theStoryTabIsNamedAfterTheStoryAndALongTitleIsCut() throws Exception {
+        onEdt(() -> controller.newSession());
+        assertEquals("Untitled story", gui.tabs.getTitleAt(0), "a story prepared before its scenario");
+        assertTrue(gui.storyTitle.isVisible() && gui.storyTitle.getText().startsWith("Story not started yet"));
+        llm.enqueue(LLMResponse.ofText(PLAN));
+        String longTitle = "The Very Long and Winding Road to the Ember Gate of Ashfall";
+        onEdt(() -> {
+            gui.scenarioTitle.setText(longTitle);
+            gui.scenarioPremise.setText("A courier.");
+            gui.scenarioSetting.setText("Snow.");
+            gui.startButton.doClick();
+        });
+        assertEquals("The Very Long and Winding Road to the...", gui.tabs.getTitleAt(0));
+        assertTrue(gui.tabs.getTitleAt(0).length() <= StoryGUI.TAB_TITLE_LENGTH);
+        assertEquals(longTitle, gui.tabs.getToolTipTextAt(0));
+    }
+
+    @Test
+    void theLoadDialogOffersStoriesByTitle() throws Exception {
+        startFromTheForm();
+        onEdt(() -> gui.act(gui::save));
+        String id = controller.getSession().getId();
+        onEdt(() -> {
+            gui.sessionToPick = null;
+            gui.act(gui::load);
+        });
+        assertEquals(List.of(new StoryGUI.StoryChoice(id, "A courier carries a forbidden letter")), gui.offeredStories);
+        assertEquals("A courier carries a forbidden letter  (" + id + ")", gui.offeredStories.get(0).toString());
+    }
+
     @Test
     void loadingAStoryWithTurnsShowsTheRecapAtTheTopOfTheStoryTab() throws Exception {
         startFromTheForm();
@@ -288,7 +363,8 @@ class StoryGUITest {
             gui.startButton.doClick();
         });
         assertTrue(controller.isStarted());
-        assertEquals("Ember Road", gui.storyTitle.getText());
+        assertEquals("Ember Road", gui.tabs.getTitleAt(0), "the first tab is named after the story");
+        assertFalse(gui.storyTitle.isVisible());
         assertEquals("At the gate.", gui.transcript.getText());
         assertTrue(gui.send.isEnabled());
         assertEquals("", gui.scenarioTitle.getText(), "the form is cleared after a start");
