@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Command-line front end with the same functionality as the GUI. It only reads commands, forwards
@@ -93,7 +94,8 @@ public class StoryCLI implements StoryObserver {
 
     /** Reads and handles commands until "quit" or the end of input. */
     public void run() {
-        out.println("AI Interactive Storyteller. Type \"help\" for commands, \"new\" to start or \"load <id>\".");
+        out.println("AI Interactive Storyteller. Type \"help\" for commands.");
+        printStartScreen();
         while (running) {
             out.print("> ");
             out.flush();
@@ -482,12 +484,38 @@ public class StoryCLI implements StoryObserver {
         out.println(controller.loadSession(id));
     }
 
+    /**
+     * What the CLI opens to, like the GUI's start screen: the saved stories to pick from, or "No stories
+     * detected" and how to create one.
+     */
+    private void printStartScreen() {
+        Map<String, String> stories;
+        try {
+            stories = controller.listSavedStories();
+        } catch (UncheckedIOException e) {
+            printError(e.getMessage());
+            stories = Map.of();
+        }
+        if (stories.isEmpty()) {
+            out.println("No stories detected. Type \"start\" to create a story.");
+            return;
+        }
+        out.println("Select a story:");
+        printStories(stories);
+        out.println("Type \"load <id>\" to open one, or \"start\" to create a story.");
+    }
+
     private void listSessions() {
-        List<String> ids = controller.listSessions();
-        if (ids.isEmpty()) {
+        Map<String, String> stories = controller.listSavedStories();
+        if (stories.isEmpty()) {
             out.println("No saved stories.");
         }
-        ids.forEach(out::println);
+        printStories(stories);
+    }
+
+    /** One line per saved story, newest first: "  story-20261108-101500  Ember Road". */
+    private void printStories(Map<String, String> stories) {
+        stories.forEach((id, title) -> out.println("  " + id + "  " + title));
     }
 
     // ---- input helpers ----

@@ -185,3 +185,12 @@ Template:
 - Affected use cases / classes / methods / patterns: UC04 (story turn) and UC08 (ending), the display step; `StoryGUI` (refreshStory, submitInput, CHARS_PER_SECOND), `TranscriptPacer` (new), `StoryCLI` (constructor, printTurn, printEnding, printText); MVC (view only), Observer (the view still refreshes from onStoryChanged).
 - Diagram to update: `figures/class-diagram/02-ui.png` (TranscriptPacer, the StoryCLI constructor).
 - Commit(s): feat(ui): reveal new story text gradually in both front ends
+
+## F11: The app opens to a story picker, and stories are offered by title
+- Original (Stage 1): UC07 has the user choose a saved session from a list (`StoryController.listSessions()` returns the ids) and `loadSession(id)` opens it. What the app shows on launch is not specified; in week 3 the GUI opened to empty tabs and the CLI to a help line.
+- Implemented: `StoryController.listSavedStories()` returns the saved stories newest first as id to title, loading each save through `SessionRepository.load` (a damaged save is listed as "(cannot be read)" and loading it still reports why). `StorySession.getTitle()` gives the scenario's title, or `StorySession.UNTITLED` ("Untitled story") for a story prepared before its scenario. `StoryCLI` opens to "Select a story:" with each id and title and how to load one, or "No stories detected. Type \"start\" to create a story."; `sessions` also prints titles.
+- What changed and why: the user asked for the app to open to a story picker, or to "No stories detected" with a way to create one, and ids such as story-20261108-101500 do not say which story is which.
+- How the user need is still met: loading still goes through `loadSession(id)` with its recap (F09) and fresh undo history; only how the user finds the story changed.
+- Affected use cases / classes / methods / patterns: UC07 (choose a session); `StoryController.listSavedStories`, `StorySession.getTitle`, `StoryCLI` (printStartScreen, listSessions); MVC.
+- Diagram to update: `figures/class-diagram/03-controller.png` (listSavedStories), `04-model-story-and-lore.png` (getTitle), `02-ui.png`; SD09 (the list now shows titles).
+- Commit(s): feat(controller): list saved stories by title and open the CLI to them

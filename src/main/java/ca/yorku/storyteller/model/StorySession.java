@@ -16,6 +16,9 @@ import java.util.Optional;
  */
 public class StorySession {
 
+    /** The title of a story that has no scenario yet. */
+    public static final String UNTITLED = "Untitled story";
+
     private String id;
     private Scenario scenario;
     private Plot plot;
@@ -82,6 +85,11 @@ public class StorySession {
 
     public Scenario getScenario() {
         return scenario;
+    }
+
+    /** What the story is shown as: the scenario's title, or "Untitled story" before it has a scenario. */
+    public String getTitle() {
+        return scenario == null ? UNTITLED : scenario.getTitle();
     }
 
     public void setScenario(Scenario scenario) {

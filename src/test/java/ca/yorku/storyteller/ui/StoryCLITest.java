@@ -363,6 +363,12 @@ class StoryCLITest {
     }
 
     @Test
+    void withNoSavesTheCliSaysNoStoriesDetected() {
+        Run r = run("quit\n");
+        assertTrue(r.output().contains("No stories detected. Type \"start\" to create a story."));
+    }
+
+    @Test
     void saveListAndLoad() {
         Run first = run("""
                 new
@@ -374,7 +380,9 @@ class StoryCLITest {
                 """);
         String id = first.controller().getSession().getId();
         Run second = run("sessions\nload " + id + "\nload nope\nchar list\n");
-        assertTrue(second.output().contains(id));
+        assertTrue(second.output().contains("Select a story:\n  " + id + "  Untitled story\n"
+                + "Type \"load <id>\" to open one, or \"start\" to create a story."), "the start screen lists it");
+        assertTrue(second.output().contains("> " + "  " + id + "  Untitled story"), "and so does \"sessions\"");
         assertTrue(second.output().contains("Loaded \"" + id + "\": 0 lore entries, 1 characters, 0 turns."));
         assertTrue(second.output().contains("Error: There is no saved story called nope."));
         assertTrue(second.output().contains("Mira"));
