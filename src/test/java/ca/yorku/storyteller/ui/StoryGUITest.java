@@ -603,6 +603,18 @@ class StoryGUITest {
     }
 
     @Test
+    void newSitsApartFromSaveAndDeleteInBothEditors() {
+        assertEquals(gui.loreSave.getParent(), gui.loreDelete.getParent());
+        assertFalse(gui.loreNew.getParent() == gui.loreSave.getParent(), "New is on its own, on the left");
+        assertEquals(java.awt.BorderLayout.WEST, ((java.awt.BorderLayout) gui.loreNew.getParent().getParent().getLayout())
+                .getConstraints(gui.loreNew.getParent()));
+        assertEquals(gui.characterSave.getParent(), gui.characterDelete.getParent());
+        assertFalse(gui.characterNew.getParent() == gui.characterSave.getParent());
+        assertEquals("STORY RECAP", gui.recapHeading.getText());
+        assertEquals("Relationships (one-way)", StoryGUI.RELATIONSHIPS_TITLE);
+    }
+
+    @Test
     void theSidebarCollapsesAndCountsWaitingProposalsWhileCollapsed() throws Exception {
         startFromTheForm();
         onEdt(() -> gui.sidebarToggle.doClick());

@@ -155,6 +155,7 @@ public class StoryGUI implements StoryObserver {
     // Recap after loading a story (F09), at the top of the Story tab
     final JTextArea recap = new JTextArea();
     final JPanel recapPanel = new JPanel(new BorderLayout());
+    final JLabel recapHeading = StoryTheme.sectionLabel("Story recap");
     final JButton hideRecap = new JButton("Dismiss");
     /** The recap card grows with its text up to this many lines, then scrolls. */
     static final int RECAP_ROWS = 5;
@@ -218,6 +219,8 @@ public class StoryGUI implements StoryObserver {
     private String editingLoreId;
 
     // Characters tab of the sidebar (F03)
+    /** A relationship belongs to the character it is added from; the other character gets none back. */
+    static final String RELATIONSHIPS_TITLE = "Relationships (one-way)";
     final DefaultListModel<Character> characterItems = new DefaultListModel<>();
     final JList<Character> characterList = new JList<>(characterItems);
     final JTextField characterName = new JTextField();
@@ -642,7 +645,7 @@ public class StoryGUI implements StoryObserver {
         hideRecap.addActionListener(e -> recapPanel.setVisible(false));
         JPanel heading = new JPanel(new BorderLayout());
         heading.setOpaque(false);
-        heading.add(StoryTheme.sectionLabel("Welcome back · the story so far"), BorderLayout.WEST);
+        heading.add(recapHeading, BorderLayout.WEST);
         heading.add(hideRecap, BorderLayout.EAST);
         StoryTheme.Card card = new StoryTheme.Card(new BorderLayout(0, 6), StoryTheme.RAISED, StoryTheme.ACCENT_SOFT);
         card.add(heading, BorderLayout.NORTH);
@@ -1007,7 +1010,7 @@ public class StoryGUI implements StoryObserver {
         loreDelete.addActionListener(e -> act(this::deleteLoreEntry));
         JPanel editor = new JPanel(new BorderLayout());
         editor.add(form, BorderLayout.CENTER);
-        editor.add(buttons(loreNew, loreSave, loreDelete), BorderLayout.SOUTH);
+        editor.add(editorButtons(loreNew, loreSave, loreDelete), BorderLayout.SOUTH);
 
         // The sidebar is narrow, so the entries sit above the editor instead of beside it.
         JPanel tab = new JPanel(new BorderLayout(0, 8));
@@ -1096,13 +1099,19 @@ public class StoryGUI implements StoryObserver {
                 "Traits", characterTraits);
 
         JPanel relationships = new JPanel(new BorderLayout(4, 4));
-        relationships.setBorder(BorderFactory.createTitledBorder("Relationships (one way, from this character)"));
+        relationships.setBorder(BorderFactory.createTitledBorder(RELATIONSHIPS_TITLE));
         relationshipList.setVisibleRowCount(2);
         relationships.add(new JScrollPane(relationshipList), BorderLayout.CENTER);
         relationshipNotes.setToolTipText("Optional notes about the relationship.");
+        // To and Type share a row so the character list above keeps a few rows in the narrow sidebar.
+        JPanel type = new JPanel(new BorderLayout(6, 0));
+        type.add(new JLabel("Type"), BorderLayout.WEST);
+        type.add(relationshipType, BorderLayout.CENTER);
+        JPanel toAndType = new JPanel(new GridLayout(1, 2, 8, 0));
+        toAndType.add(relationshipTarget);
+        toAndType.add(type);
         JPanel addRow = form(
-                "To", relationshipTarget,
-                "Type", relationshipType,
+                "To", toAndType,
                 "Notes", relationshipNotes);
         JPanel addPanel = new JPanel(new BorderLayout());
         addPanel.add(addRow, BorderLayout.CENTER);
@@ -1117,7 +1126,7 @@ public class StoryGUI implements StoryObserver {
 
         JPanel editor = new JPanel(new BorderLayout());
         editor.add(form, BorderLayout.NORTH);
-        editor.add(buttons(characterNew, characterSave, characterDelete), BorderLayout.CENTER);
+        editor.add(editorButtons(characterNew, characterSave, characterDelete), BorderLayout.CENTER);
         editor.add(relationships, BorderLayout.SOUTH);
 
         // The sidebar is narrow, so the characters sit above the editor instead of beside it.
@@ -1274,6 +1283,16 @@ public class StoryGUI implements StoryObserver {
         for (JButton b : buttons) {
             p.add(b);
         }
+        return p;
+    }
+
+    /** New on the left, apart from the buttons that act on the entry in the form, on the right. */
+    private static JPanel editorButtons(JButton create, JButton... onEntry) {
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        left.add(create);
+        JPanel p = new JPanel(new BorderLayout());
+        p.add(left, BorderLayout.WEST);
+        p.add(buttons(onEntry), BorderLayout.EAST);
         return p;
     }
 
