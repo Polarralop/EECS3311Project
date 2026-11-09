@@ -59,6 +59,14 @@ class JsonSessionRepositoryTest {
     }
 
     @Test
+    void lastSavedIsTheSaveFilesTimeAndAMissingSaveIsAnError() throws Exception {
+        repo.save(new StorySession("story-a"));
+        Files.setLastModifiedTime(dir.resolve("saves/story-a.json"), FileTime.fromMillis(1_762_662_000_000L));
+        assertEquals(java.time.Instant.ofEpochMilli(1_762_662_000_000L), repo.lastSaved("story-a"));
+        assertThrows(IllegalArgumentException.class, () -> repo.lastSaved("story-missing"));
+    }
+
+    @Test
     void roundTripKeepsTheWholeStory() {
         repo.save(fullSession("story-1"));
         StorySession loaded = repo.load("story-1");

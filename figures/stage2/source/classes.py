@@ -144,7 +144,7 @@ def controller():
         "+ saveSession(): void",
         "+ loadSession(id: String): String",
         "+ listSessions(): List<String>",
-        "+ listSavedStories(): Map<String, String>",
+        "+ listSavedStories(): List<SavedStory>",
     ])
     hist = Box("CommandHistory", sc.x + sc.w + 70, 90, role="Command: invoker", fields=[
         "- done: Deque<StoryCommand>",
@@ -183,17 +183,25 @@ def controller():
         "+ undo(): void",
         "+ getOldNarration(): String",
     ])
+    saved = Box("SavedStory", sub.x, sub.y + sub.h + 60, stereo="record", fields=[
+        "+ id: String",
+        "+ title: String",
+        "+ savedAt: Instant",
+    ])
     hist.x = max(hist.x, (sub.x + edit.x + edit.w) / 2 - hist.w / 2)
     cmd.x = hist.x + hist.w / 2 - cmd.w / 2
     w = edit.x + edit.w + 30
+    sy = saved.y + saved.h / 2
     links = [
+        link([(sc.x + sc.w, min(sy, sc.y + sc.h - 20)), (sc.x + sc.w + 20, min(sy, sc.y + sc.h - 20)),
+              (sc.x + sc.w + 20, sy), (saved.x, sy)], "dep", label="lists"),
         link(hv((sc.x + sc.w, sc.y + 50), hist.anchor("l", 0.6)), "comp", mult="1"),
         link([hist.anchor("b"), (hist.x + hist.w / 2, cmd.y)], "agg", mult="0..*"),
         link(vh(sub.anchor("t"), cmd.anchor("b", 0.35), sub.y - 40), "real"),
         link(vh(edit.anchor("t"), cmd.anchor("b", 0.65), sub.y - 40), "real"),
     ]
-    h = max(sc.y + sc.h, sub.y + sub.h) + 40
-    return class_diagram("controller", "Controller", [sc, hist, cmd, sub, edit], links, w, h)
+    h = max(sc.y + sc.h, saved.y + saved.h) + 40
+    return class_diagram("controller", "Controller", [sc, hist, cmd, sub, edit, saved], links, w, h)
 
 
 def model_story_and_lore():
@@ -428,10 +436,34 @@ def agent_tools():
                          [reg, call, tool, res] + tools, links, w, h)
 
 
+def persistence():
+    repo = Box("SessionRepository", 30, 90, stereo="interface", methods=[
+        "+ save(session: StorySession): void",
+        "+ load(id: String): StorySession",
+        "+ listSessions(): List<String>",
+        "+ lastSaved(id: String): Instant",
+    ])
+    js = Box("JsonSessionRepository", repo.x + repo.w + 110, 90, fields=[
+        "- directory: Path",
+        "- mapper: ObjectMapper",
+    ], methods=[
+        "+ JsonSessionRepository(directory: Path)",
+        "+ save(session: StorySession): void",
+        "+ load(id: String): StorySession",
+        "+ listSessions(): List<String>",
+        "+ lastSaved(id: String): Instant",
+    ])
+    y = repo.y + repo.h / 2
+    links = [link([(js.x, y), (repo.x + repo.w, y)], "real")]
+    return class_diagram("persistence", "saved sessions", [repo, js], links, js.x + js.w + 30,
+                         max(repo.y + repo.h, js.y + js.h) + 40)
+
+
 ALL = {
     "02-ui": ui,
     "03-controller": controller,
     "04-model-story-and-lore": model_story_and_lore,
     "06-agent": agent,
     "07-agent-tools": agent_tools,
+    "09-persistence": persistence,
 }

@@ -1,5 +1,6 @@
 package ca.yorku.storyteller.ui;
 
+import ca.yorku.storyteller.controller.SavedStory;
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
@@ -21,9 +22,12 @@ import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.UncheckedIOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -88,16 +92,38 @@ public class StoryGUI implements StoryObserver {
     // Start screen (F01, F11): pick a saved story, or create one
     private final JPanel home = new JPanel(new GridBagLayout());
     final JLabel homeHeading = new JLabel();
-    final DefaultListModel<StoryChoice> savedStoryItems = new DefaultListModel<>();
-    final JList<StoryChoice> savedStoryList = new JList<>(savedStoryItems);
+    final DefaultListModel<SavedStory> savedStoryItems = new DefaultListModel<>();
+    final JList<SavedStory> savedStoryList = new JList<>(savedStoryItems);
     final JButton openStory = new JButton("Open");
     final JButton createStory = new JButton("Create story...");
 
-    /** A saved story as the start screen and the Load dialog list it: by title, with its id. */
-    record StoryChoice(String id, String title) {
+    private static final DateTimeFormatter SAVED_FORMAT =
+            DateTimeFormatter.ofPattern("MMM d, yyyy, h:mm a", Locale.ENGLISH);
+
+    /** "Nov 9, 2026, 4:27 AM": when a story was saved, in the given time zone. */
+    static String savedLabel(Instant savedAt, ZoneId zone) {
+        return SAVED_FORMAT.format(savedAt.atZone(zone));
+    }
+
+    /** How a saved story reads in the Load dialog: "Ember Road (saved Nov 9, 2026, 4:27 AM)". */
+    static String choiceLabel(SavedStory s) {
+        return s.title() + "  (saved " + savedLabel(s.savedAt(), ZoneId.systemDefault()) + ")";
+    }
+
+    /** Draws a saved story as its title, then when it was saved in grey. */
+    static final class SavedStoryRenderer extends DefaultListCellRenderer {
         @Override
-        public String toString() {
-            return title + "  (" + id + ")";
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                      boolean selected, boolean focus) {
+            SavedStory s = (SavedStory) value;
+            String grey = selected ? "#505050" : "#808080";
+            String html = "<html>" + escape(s.title()) + "&nbsp;&nbsp;<font color='" + grey + "'>Saved "
+                    + savedLabel(s.savedAt(), ZoneId.systemDefault()) + "</font></html>";
+            return super.getListCellRendererComponent(list, html, index, selected, focus);
+        }
+
+        private static String escape(String text) {
+            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
         }
     }
 
@@ -333,15 +359,20 @@ public class StoryGUI implements StoryObserver {
     }
 
     /** Asks the user to pick a saved story; its id, or null if cancelled. */
-    protected String chooseSession(List<StoryChoice> stories) {
+    protected String chooseSession(List<SavedStory> stories) {
+        String[] labels = stories.stream().map(StoryGUI::choiceLabel).toArray(String[]::new);
         Object choice = JOptionPane.showInputDialog(root, "Saved stories (newest first):", "Load a story",
-                JOptionPane.PLAIN_MESSAGE, null, stories.toArray(), stories.get(0));
-        return choice == null ? null : ((StoryChoice) choice).id();
+                JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]);
+        for (int i = 0; i < labels.length; i++) {
+            if (labels[i] == choice) {
+                return stories.get(i).id();
+            }
+        }
+        return null;
     }
 
-    private List<StoryChoice> savedStories() {
-        Map<String, String> stories = controller.listSavedStories();
-        return stories.entrySet().stream().map(e -> new StoryChoice(e.getKey(), e.getValue())).toList();
+    private List<SavedStory> savedStories() {
+        return controller.listSavedStories();
     }
 
     /** Observer: re-reads the session into every list and the status bar. */
@@ -389,7 +420,7 @@ public class StoryGUI implements StoryObserver {
     }
 
     void load() {
-        List<StoryChoice> stories = savedStories();
+        List<SavedStory> stories = savedStories();
         if (stories.isEmpty()) {
             showError("There are no saved stories yet.");
             return;
@@ -410,6 +441,7 @@ public class StoryGUI implements StoryObserver {
     private void buildHome() {
         homeHeading.setFont(homeHeading.getFont().deriveFont(Font.BOLD, 18f));
         savedStoryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        savedStoryList.setCellRenderer(new SavedStoryRenderer());
         savedStoryList.setVisibleRowCount(8);
         savedStoryList.setToolTipText("Double-click a story to open it.");
         savedStoryList.addMouseListener(new MouseAdapter() {
@@ -430,7 +462,7 @@ public class StoryGUI implements StoryObserver {
      * or "No stories detected" with only the Create story... button.
      */
     void refreshHome() {
-        List<StoryChoice> stories;
+        List<SavedStory> stories;
         try {
             stories = savedStories();
         } catch (UncheckedIOException e) {
@@ -461,7 +493,7 @@ public class StoryGUI implements StoryObserver {
     }
 
     void openSelectedStory() {
-        StoryChoice choice = savedStoryList.getSelectedValue();
+        SavedStory choice = savedStoryList.getSelectedValue();
         if (choice == null) {
             throw new IllegalArgumentException("Select a story first.");
         }

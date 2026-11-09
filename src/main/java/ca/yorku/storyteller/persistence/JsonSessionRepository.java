@@ -14,6 +14,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -98,6 +99,15 @@ public class JsonSessionRepository implements SessionRepository {
         } catch (IOException e) {
             throw new UncheckedIOException("Could not list the saved stories: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public Instant lastSaved(String id) {
+        Path file = fileFor(id);
+        if (!Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("There is no saved story called " + id + ".");
+        }
+        return modified(file).toInstant();
     }
 
     private Path fileFor(String id) {

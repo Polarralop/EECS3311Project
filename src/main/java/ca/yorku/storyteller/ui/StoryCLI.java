@@ -1,6 +1,7 @@
 package ca.yorku.storyteller.ui;
 
 import ca.yorku.storyteller.agent.StoryAgent;
+import ca.yorku.storyteller.controller.SavedStory;
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.llm.ClaudeAdapter;
 import ca.yorku.storyteller.llm.LLMClient;
@@ -21,10 +22,10 @@ import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * Command-line front end with the same functionality as the GUI. It only reads commands, forwards
@@ -489,12 +490,12 @@ public class StoryCLI implements StoryObserver {
      * detected" and how to create one.
      */
     private void printStartScreen() {
-        Map<String, String> stories;
+        List<SavedStory> stories;
         try {
             stories = controller.listSavedStories();
         } catch (UncheckedIOException e) {
             printError(e.getMessage());
-            stories = Map.of();
+            stories = List.of();
         }
         if (stories.isEmpty()) {
             out.println("No stories detected. Type \"start\" to create a story.");
@@ -506,16 +507,18 @@ public class StoryCLI implements StoryObserver {
     }
 
     private void listSessions() {
-        Map<String, String> stories = controller.listSavedStories();
+        List<SavedStory> stories = controller.listSavedStories();
         if (stories.isEmpty()) {
             out.println("No saved stories.");
         }
         printStories(stories);
     }
 
-    /** One line per saved story, newest first: "  story-20261108-101500  Ember Road". */
-    private void printStories(Map<String, String> stories) {
-        stories.forEach((id, title) -> out.println("  " + id + "  " + title));
+    /** One line per saved story, newest first: "  story-20261108-101500  Ember Road  (saved Nov 8, 2026, 10:15 AM)". */
+    private void printStories(List<SavedStory> stories) {
+        for (SavedStory s : stories) {
+            out.println("  " + s.id() + "  " + s.title() + "  (saved " + StoryGUI.savedLabel(s.savedAt(), ZoneId.systemDefault()) + ")");
+        }
     }
 
     // ---- input helpers ----

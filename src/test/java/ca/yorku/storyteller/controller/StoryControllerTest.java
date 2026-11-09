@@ -153,10 +153,11 @@ class StoryControllerTest {
 
         var stories = controller.listSavedStories();
 
-        assertEquals(List.of(titled, untitled.getId(), "story-broken"), List.copyOf(stories.keySet()));
-        assertEquals("Ember Road", stories.get(titled));
-        assertEquals(StorySession.UNTITLED, stories.get(untitled.getId()));
-        assertEquals("(cannot be read)", stories.get("story-broken"));
+        assertEquals(List.of(titled, untitled.getId(), "story-broken"), stories.stream().map(SavedStory::id).toList());
+        assertEquals(List.of("Ember Road", StorySession.UNTITLED, "(cannot be read)"),
+                stories.stream().map(SavedStory::title).toList());
+        assertEquals(java.time.Instant.ofEpochMilli(1_000), stories.get(1).savedAt(), "when the file was last saved");
+        assertEquals(java.time.Instant.ofEpochMilli(500), stories.get(2).savedAt());
         assertSame(untitled, controller.getSession(), "listing does not change the open story");
     }
 

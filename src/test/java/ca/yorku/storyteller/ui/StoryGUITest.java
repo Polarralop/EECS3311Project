@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ca.yorku.storyteller.controller.SavedStory;
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.persistence.JsonSessionRepository;
 import ca.yorku.storyteller.agent.StoryAgent;
@@ -42,7 +43,7 @@ class StoryGUITest {
         final List<String> errors = new ArrayList<>();
         final List<String> messages = new ArrayList<>();
         String sessionToPick;
-        List<StoryChoice> offeredStories;
+        List<SavedStory> offeredStories;
         int startFormOpened;
         /** Answers to yes/no questions, in order; the questions are recorded. */
         final java.util.ArrayDeque<Boolean> answers = new java.util.ArrayDeque<>();
@@ -71,7 +72,7 @@ class StoryGUITest {
         }
 
         @Override
-        protected String chooseSession(List<StoryChoice> stories) {
+        protected String chooseSession(List<SavedStory> stories) {
             offeredStories = stories;
             return sessionToPick;
         }
@@ -257,8 +258,16 @@ class StoryGUITest {
         TestGUI g = second[0];
         assertTrue(g.isShowingHome());
         assertEquals("Select story", g.homeHeading.getText());
-        assertEquals(List.of(new StoryGUI.StoryChoice(id, "A courier carries a forbidden letter")),
-                java.util.Collections.list(g.savedStoryItems.elements()));
+        SavedStory listed = g.savedStoryItems.get(0);
+        assertEquals(1, g.savedStoryItems.size());
+        assertEquals(id, listed.id());
+        assertEquals("A courier carries a forbidden letter", listed.title());
+        java.awt.Component cell = g.savedStoryList.getCellRenderer()
+                .getListCellRendererComponent(g.savedStoryList, listed, 0, false, false);
+        String html = ((javax.swing.JLabel) cell).getText();
+        assertFalse(html.contains(id), "the id is not shown");
+        assertTrue(html.contains("<font color='#808080'>Saved "
+                + StoryGUI.savedLabel(listed.savedAt(), java.time.ZoneId.systemDefault()) + "</font>"), html);
         assertEquals(0, g.savedStoryList.getSelectedIndex(), "the newest story is selected");
 
         onEdt(() -> g.openStory.doClick());
@@ -296,8 +305,16 @@ class StoryGUITest {
             gui.sessionToPick = null;
             gui.act(gui::load);
         });
-        assertEquals(List.of(new StoryGUI.StoryChoice(id, "A courier carries a forbidden letter")), gui.offeredStories);
-        assertEquals("A courier carries a forbidden letter  (" + id + ")", gui.offeredStories.get(0).toString());
+        assertEquals(id, gui.offeredStories.get(0).id());
+        assertEquals("A courier carries a forbidden letter  (saved "
+                + StoryGUI.savedLabel(gui.offeredStories.get(0).savedAt(), java.time.ZoneId.systemDefault()) + ")",
+                StoryGUI.choiceLabel(gui.offeredStories.get(0)));
+    }
+
+    @Test
+    void theSaveTimeReadsAsADateAndTime() {
+        java.time.Instant t = java.time.ZonedDateTime.of(2026, 11, 9, 16, 27, 0, 0, java.time.ZoneId.of("America/Toronto")).toInstant();
+        assertEquals("Nov 9, 2026, 4:27 PM", StoryGUI.savedLabel(t, java.time.ZoneId.of("America/Toronto")));
     }
 
     @Test
