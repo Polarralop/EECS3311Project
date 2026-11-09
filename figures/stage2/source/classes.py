@@ -25,9 +25,16 @@ def ui():
         "- busy: boolean",
         "~ recap: JTextArea",
         "- recapSessionId: String",
+        "~ pacer: TranscriptPacer",
+        "- shownSessionId: String",
+        "~ CHARS_PER_SECOND: int = 300 {static}",
     ], methods=[
         "+ StoryGUI(controller: StoryController)",
         "+ open(): void",
+        "~ refreshHome(): void",
+        "~ openSelectedStory(): void",
+        "~ isShowingHome(): boolean",
+        "- refreshStory(session: StorySession): void",
         "+ onStoryChanged(session: StorySession): void",
         "+ showError(message: String): void",
         "~ submitInput(): void",
@@ -45,6 +52,7 @@ def ui():
         "~ save(): void",
         "~ load(): void",
         "~ showRecap(text: String): void",
+        "# chooseSession(stories: List<StoryChoice>): String",
         "# confirm(question: String): boolean",
         "# askNarration(current: String): String",
         "# openStartForm(): void",
@@ -52,8 +60,10 @@ def ui():
     ])
     cli = Box("StoryCLI", gui.x + gui.w + 50, 330, role="MVC: view · Observer: concrete observer", fields=[
         "- controller: StoryController",
+        "- charsPerSecond: int",
     ], methods=[
         "+ StoryCLI(controller, in: BufferedReader, out: PrintStream)",
+        "+ StoryCLI(controller, in, out, charsPerSecond: int)",
         "+ run(): void",
         "+ handleCommand(line: String): void",
         "+ printError(message: String): void",
@@ -64,19 +74,36 @@ def ui():
         "- edit(): void",
         "- offerEnding(): void",
         "- end(): void",
-        "- printEnding(ending: String): void",
-        "- printTurn(turn: Turn): void",
+        "- printStartScreen(): void",
+        "- printEnding(ending: String, paced: boolean): void",
+        "- printTurn(turn: Turn, paced: boolean): void",
+        "- printText(text: String, paced: boolean): void",
         "- printProposals(): void",
         "- load(id: String): void",
         "~ createController(): StoryController {static}",
     ])
-    w = cli.x + cli.w + 30
+    pacer = Box("TranscriptPacer", cli.x, cli.y + cli.h + 70, role="paces new text on screen only", fields=[
+        "- target: String",
+        "- shown: int",
+        "~ TICK_MS: int = 20 {static}",
+        "~ MAX_REVEAL_MS: int = 10000 {static}",
+    ], methods=[
+        "~ TranscriptPacer(area: JTextArea, charsPerSecond: int)",
+        "~ show(text: String, pace: boolean): void",
+        "~ tick(): void",
+        "~ skip(): void",
+        "~ isRevealing(): boolean",
+    ])
+    w = max(cli.x + cli.w, pacer.x + pacer.w) + 30
     obs.x = (w - obs.w) / 2
+    y = pacer.y + pacer.h / 2
     links = [
         link(vh(gui.anchor("t"), obs.anchor("b", 0.3), 270), "real"),
         link(vh(cli.anchor("t"), obs.anchor("b", 0.7), 270), "real"),
+        link([(gui.x + gui.w, y), (pacer.x, y)], "comp"),
     ]
-    return class_diagram("ui", "View", [obs, gui, cli], links, w, gui.y + gui.h + 40)
+    return class_diagram("ui", "View", [obs, gui, cli, pacer], links, w,
+                         max(gui.y + gui.h, pacer.y + pacer.h) + 40)
 
 
 def controller():
@@ -117,6 +144,7 @@ def controller():
         "+ saveSession(): void",
         "+ loadSession(id: String): String",
         "+ listSessions(): List<String>",
+        "+ listSavedStories(): List<SavedStory>",
     ])
     hist = Box("CommandHistory", sc.x + sc.w + 70, 90, role="Command: invoker", fields=[
         "- done: Deque<StoryCommand>",
@@ -155,17 +183,25 @@ def controller():
         "+ undo(): void",
         "+ getOldNarration(): String",
     ])
+    saved = Box("SavedStory", sub.x, sub.y + sub.h + 60, stereo="record", fields=[
+        "+ id: String",
+        "+ title: String",
+        "+ savedAt: Instant",
+    ])
     hist.x = max(hist.x, (sub.x + edit.x + edit.w) / 2 - hist.w / 2)
     cmd.x = hist.x + hist.w / 2 - cmd.w / 2
     w = edit.x + edit.w + 30
+    sy = saved.y + saved.h / 2
     links = [
+        link([(sc.x + sc.w, min(sy, sc.y + sc.h - 20)), (sc.x + sc.w + 20, min(sy, sc.y + sc.h - 20)),
+              (sc.x + sc.w + 20, sy), (saved.x, sy)], "dep", label="lists"),
         link(hv((sc.x + sc.w, sc.y + 50), hist.anchor("l", 0.6)), "comp", mult="1"),
         link([hist.anchor("b"), (hist.x + hist.w / 2, cmd.y)], "agg", mult="0..*"),
         link(vh(sub.anchor("t"), cmd.anchor("b", 0.35), sub.y - 40), "real"),
         link(vh(edit.anchor("t"), cmd.anchor("b", 0.65), sub.y - 40), "real"),
     ]
-    h = max(sc.y + sc.h, sub.y + sub.h) + 40
-    return class_diagram("controller", "Controller", [sc, hist, cmd, sub, edit], links, w, h)
+    h = max(sc.y + sc.h, saved.y + saved.h) + 40
+    return class_diagram("controller", "Controller", [sc, hist, cmd, sub, edit, saved], links, w, h)
 
 
 def model_story_and_lore():
@@ -176,6 +212,7 @@ def model_story_and_lore():
         "- nextProposalNumber: int",
         "- ending: String",
         "- observers: List<StoryObserver> {transient}",
+        "+ UNTITLED: String = \"Untitled story\" {static}",
     ], methods=[
         "+ addTurn(turn: Turn): void",
         "+ removeLastTurn(): Turn",
@@ -197,6 +234,7 @@ def model_story_and_lore():
         "+ attach(observer: StoryObserver): void",
         "+ detach(observer: StoryObserver): void",
         "+ notifyObservers(): void",
+        "+ getTitle(): String",
     ])
     row = ss.y + ss.h + 110
     turn = Box("Turn", 30, row, fields=[
@@ -398,10 +436,34 @@ def agent_tools():
                          [reg, call, tool, res] + tools, links, w, h)
 
 
+def persistence():
+    repo = Box("SessionRepository", 30, 90, stereo="interface", methods=[
+        "+ save(session: StorySession): void",
+        "+ load(id: String): StorySession",
+        "+ listSessions(): List<String>",
+        "+ lastSaved(id: String): Instant",
+    ])
+    js = Box("JsonSessionRepository", repo.x + repo.w + 110, 90, fields=[
+        "- directory: Path",
+        "- mapper: ObjectMapper",
+    ], methods=[
+        "+ JsonSessionRepository(directory: Path)",
+        "+ save(session: StorySession): void",
+        "+ load(id: String): StorySession",
+        "+ listSessions(): List<String>",
+        "+ lastSaved(id: String): Instant",
+    ])
+    y = repo.y + repo.h / 2
+    links = [link([(js.x, y), (repo.x + repo.w, y)], "real")]
+    return class_diagram("persistence", "saved sessions", [repo, js], links, js.x + js.w + 30,
+                         max(repo.y + repo.h, js.y + js.h) + 40)
+
+
 ALL = {
     "02-ui": ui,
     "03-controller": controller,
     "04-model-story-and-lore": model_story_and_lore,
     "06-agent": agent,
     "07-agent-tools": agent_tools,
+    "09-persistence": persistence,
 }

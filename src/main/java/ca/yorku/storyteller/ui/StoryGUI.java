@@ -1,5 +1,6 @@
 package ca.yorku.storyteller.ui;
 
+import ca.yorku.storyteller.controller.SavedStory;
 import ca.yorku.storyteller.controller.StoryController;
 import ca.yorku.storyteller.llm.LLMException;
 import ca.yorku.storyteller.model.Character;
@@ -10,17 +11,23 @@ import ca.yorku.storyteller.model.Scenario;
 import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.UncheckedIOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -69,9 +76,56 @@ public class StoryGUI implements StoryObserver {
     private final StoryController controller;
     private final JPanel root = new JPanel(new BorderLayout());
     private final JMenuBar menuBar = new JMenuBar();
-    final JLabel status = new JLabel("No story open. Use Story > New or Story > Load.");
+    final JLabel status = new JLabel("No story open.");
 
-    private final JTabbedPane tabs = new JTabbedPane();
+    /** The start screen while no story is open, the story's tabs once one is. */
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel cards = new JPanel(cardLayout);
+    static final String HOME_CARD = "home";
+    static final String STORY_CARD = "story";
+    private String shownCard;
+
+    final JTabbedPane tabs = new JTabbedPane();
+    /** Longest story title shown on the first tab; longer ones are cut and shown whole in its tooltip. */
+    static final int TAB_TITLE_LENGTH = 40;
+
+    // Start screen (F01, F11): pick a saved story, or create one
+    private final JPanel home = new JPanel(new GridBagLayout());
+    final JLabel homeHeading = new JLabel();
+    final DefaultListModel<SavedStory> savedStoryItems = new DefaultListModel<>();
+    final JList<SavedStory> savedStoryList = new JList<>(savedStoryItems);
+    final JButton openStory = new JButton("Open");
+    final JButton createStory = new JButton("Create story...");
+
+    private static final DateTimeFormatter SAVED_FORMAT =
+            DateTimeFormatter.ofPattern("MMM d, yyyy, h:mm a", Locale.ENGLISH);
+
+    /** "Nov 9, 2026, 4:27 AM": when a story was saved, in the given time zone. */
+    static String savedLabel(Instant savedAt, ZoneId zone) {
+        return SAVED_FORMAT.format(savedAt.atZone(zone));
+    }
+
+    /** How a saved story reads in the Load dialog: "Ember Road (saved Nov 9, 2026, 4:27 AM)". */
+    static String choiceLabel(SavedStory s) {
+        return s.title() + "  (saved " + savedLabel(s.savedAt(), ZoneId.systemDefault()) + ")";
+    }
+
+    /** Draws a saved story as its title, then when it was saved in grey. */
+    static final class SavedStoryRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                      boolean selected, boolean focus) {
+            SavedStory s = (SavedStory) value;
+            String grey = selected ? "#505050" : "#808080";
+            String html = "<html>" + escape(s.title()) + "&nbsp;&nbsp;<font color='" + grey + "'>Saved "
+                    + savedLabel(s.savedAt(), ZoneId.systemDefault()) + "</font></html>";
+            return super.getListCellRendererComponent(list, html, index, selected, focus);
+        }
+
+        private static String escape(String text) {
+            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        }
+    }
 
     // Story tab (F04, F10)
     final JLabel storyTitle = new JLabel();
@@ -82,6 +136,12 @@ public class StoryGUI implements StoryObserver {
     /** The story the recap belongs to; the recap is hidden once another story is open. */
     private String recapSessionId;
     final JTextArea transcript = new JTextArea();
+    /** How fast new story text is revealed in the transcript, in characters per second. */
+    static final int CHARS_PER_SECOND = 300;
+    /** Reveals new narration gradually instead of all at once; click the transcript to show it all. */
+    final TranscriptPacer pacer = new TranscriptPacer(transcript, CHARS_PER_SECOND);
+    /** The story the transcript shows; text is only paced while the same story stays open. */
+    private String shownSessionId;
     final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
     final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
     final JComboBox<String> modeChoice;
@@ -155,13 +215,33 @@ public class StoryGUI implements StoryObserver {
         modeChoice = new JComboBox<>(controller.modeNames().toArray(new String[0]));
         startForm = buildStartForm();
         buildMenu();
-        tabs.addTab("Story", buildStoryTab());
+        // The first tab is named after the open story (see refreshStory), not "Story", which is the menu.
+        tabs.addTab(StorySession.UNTITLED, buildStoryTab());
         tabs.addTab("Lore", buildLoreTab());
         tabs.addTab("Characters", buildCharacterTab());
-        root.add(tabs, BorderLayout.CENTER);
+        buildHome();
+        cards.add(home, HOME_CARD);
+        cards.add(tabs, STORY_CARD);
+        root.add(cards, BorderLayout.CENTER);
         status.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         root.add(status, BorderLayout.SOUTH);
         refreshStoryControls();
+        if (controller.getSession() == null) {
+            refreshHome();
+            showCard(HOME_CARD);
+        } else {
+            showCard(STORY_CARD);
+        }
+    }
+
+    private void showCard(String name) {
+        cardLayout.show(cards, name);
+        shownCard = name;
+    }
+
+    /** True while the start screen is showing, that is, before any story is open. */
+    boolean isShowingHome() {
+        return HOME_CARD.equals(shownCard);
     }
 
     /** Shows the window. */
@@ -278,11 +358,21 @@ public class StoryGUI implements StoryObserver {
         }
     }
 
-    /** Asks the user to pick a saved story; null if cancelled. */
-    protected String chooseSession(List<String> ids) {
+    /** Asks the user to pick a saved story; its id, or null if cancelled. */
+    protected String chooseSession(List<SavedStory> stories) {
+        String[] labels = stories.stream().map(StoryGUI::choiceLabel).toArray(String[]::new);
         Object choice = JOptionPane.showInputDialog(root, "Saved stories (newest first):", "Load a story",
-                JOptionPane.PLAIN_MESSAGE, null, ids.toArray(), ids.get(0));
-        return (String) choice;
+                JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]);
+        for (int i = 0; i < labels.length; i++) {
+            if (labels[i] == choice) {
+                return stories.get(i).id();
+            }
+        }
+        return null;
+    }
+
+    private List<SavedStory> savedStories() {
+        return controller.listSavedStories();
     }
 
     /** Observer: re-reads the session into every list and the status bar. */
@@ -292,6 +382,7 @@ public class StoryGUI implements StoryObserver {
             SwingUtilities.invokeLater(() -> onStoryChanged(session));
             return;
         }
+        showCard(STORY_CARD);
         refreshing = true;
         try {
             int waiting = session.getPendingProposals().size();
@@ -329,16 +420,84 @@ public class StoryGUI implements StoryObserver {
     }
 
     void load() {
-        List<String> ids = controller.listSessions();
-        if (ids.isEmpty()) {
+        List<SavedStory> stories = savedStories();
+        if (stories.isEmpty()) {
             showError("There are no saved stories yet.");
             return;
         }
-        String id = chooseSession(ids);
+        String id = chooseSession(stories);
         if (id != null) {
-            runInBackground("Loading the story and writing a recap...", () -> controller.loadSession(id),
-                    this::showRecap, () -> { });
+            loadStory(id);
         }
+    }
+
+    private void loadStory(String id) {
+        runInBackground("Loading the story and writing a recap...", () -> controller.loadSession(id),
+                this::showRecap, () -> { });
+    }
+
+    // ---- start screen (F01, F11) ----
+
+    private void buildHome() {
+        homeHeading.setFont(homeHeading.getFont().deriveFont(Font.BOLD, 18f));
+        savedStoryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        savedStoryList.setCellRenderer(new SavedStoryRenderer());
+        savedStoryList.setVisibleRowCount(8);
+        savedStoryList.setToolTipText("Double-click a story to open it.");
+        savedStoryList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && savedStoryList.getSelectedValue() != null) {
+                    act(StoryGUI.this::openSelectedStory);
+                }
+            }
+        });
+        savedStoryList.addListSelectionListener(e -> openStory.setEnabled(savedStoryList.getSelectedValue() != null));
+        openStory.addActionListener(e -> act(this::openSelectedStory));
+        createStory.addActionListener(e -> act(this::openStartForm));
+    }
+
+    /**
+     * Fills the start screen from the save folder: "Select story" and the saved stories, newest first,
+     * or "No stories detected" with only the Create story... button.
+     */
+    void refreshHome() {
+        List<SavedStory> stories;
+        try {
+            stories = savedStories();
+        } catch (UncheckedIOException e) {
+            stories = List.of();
+            status.setText(e.getMessage());
+        }
+        savedStoryItems.clear();
+        stories.forEach(savedStoryItems::addElement);
+        home.removeAll();
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.insets = new Insets(6, 6, 6, 6);
+        if (stories.isEmpty()) {
+            homeHeading.setText("No stories detected");
+            home.add(homeHeading, c);
+            home.add(createStory, c);
+        } else {
+            homeHeading.setText("Select story");
+            home.add(homeHeading, c);
+            JScrollPane list = new JScrollPane(savedStoryList);
+            list.setPreferredSize(new Dimension(460, 220));
+            home.add(list, c);
+            savedStoryList.setSelectedIndex(0);
+            home.add(buttons(openStory, createStory), c);
+        }
+        home.revalidate();
+        home.repaint();
+    }
+
+    void openSelectedStory() {
+        SavedStory choice = savedStoryList.getSelectedValue();
+        if (choice == null) {
+            throw new IllegalArgumentException("Select a story first.");
+        }
+        loadStory(choice.id());
     }
 
     /** Shows what was loaded and the agent's recap at the top of the Story tab (F09). */
@@ -368,6 +527,13 @@ public class StoryGUI implements StoryObserver {
         transcript.setEditable(false);
         transcript.setLineWrap(true);
         transcript.setWrapStyleWord(true);
+        transcript.setToolTipText("Click to show the rest of the text at once.");
+        transcript.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                pacer.skip();
+            }
+        });
         usedLoreList.setVisibleRowCount(3);
         usedLoreList.setToolTipText("Double-click an entry to open it in the Lore tab.");
         usedLoreList.addMouseListener(new MouseAdapter() {
@@ -413,7 +579,13 @@ public class StoryGUI implements StoryObserver {
 
     private void refreshStory(StorySession session) {
         Scenario sc = session.getScenario();
-        storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : sc.getTitle());
+        String title = session.getTitle();
+        tabs.setTitleAt(0, title.length() <= TAB_TITLE_LENGTH ? title
+                : title.substring(0, TAB_TITLE_LENGTH - 3).strip() + "...");
+        tabs.setToolTipTextAt(0, title);
+        // The tab already names the story; the line above the transcript only explains how to start one.
+        storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : "");
+        storyTitle.setVisible(sc == null);
         if (!session.getId().equals(recapSessionId)) {
             recapPanel.setVisible(false);
         }
@@ -434,8 +606,10 @@ public class StoryGUI implements StoryObserver {
         if (session.isEnded()) {
             sb.append("* * *\n\n").append(session.getEnding()).append("\n\nTHE END");
         }
-        transcript.setText(sb.toString().strip());
-        transcript.setCaretPosition(transcript.getDocument().getLength());
+        // A new turn or ending extends the transcript and is revealed gradually; anything else
+        // (another story, an undo, an edit) replaces it at once.
+        pacer.show(sb.toString().strip(), session.getId().equals(shownSessionId));
+        shownSessionId = session.getId();
         usedLoreItems.clear();
         session.lastTurn().ifPresent(t -> {
             for (String id : t.getUsedLoreIds()) {
@@ -465,6 +639,7 @@ public class StoryGUI implements StoryObserver {
         if (text.isBlank()) {
             throw new IllegalArgumentException("Type something for the turn first.");
         }
+        pacer.skip();
         runInBackground("The storyteller is writing...", () -> controller.submitTurn(text, mode), turn -> {
             input.setText("");
             offerEnding();

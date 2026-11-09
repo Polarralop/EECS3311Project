@@ -16,6 +16,8 @@ import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
 import ca.yorku.storyteller.persistence.SessionRepository;
 import ca.yorku.storyteller.ui.StoryObserver;
+import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -423,6 +425,33 @@ public class StoryController {
 
     public List<String> listSessions() {
         return repository.listSessions();
+    }
+
+    /**
+     * The saved stories, most recently saved first, with each one's title and when it was saved, so a
+     * front end can offer them by name. A save that cannot be read is still listed, with
+     * "(cannot be read)" as its title; loading it reports why.
+     *
+     * @throws java.io.UncheckedIOException if the save folder cannot be listed
+     */
+    public List<SavedStory> listSavedStories() {
+        List<SavedStory> stories = new ArrayList<>();
+        for (String id : repository.listSessions()) {
+            String title;
+            try {
+                title = repository.load(id).getTitle();
+            } catch (IllegalArgumentException | UncheckedIOException e) {
+                title = "(cannot be read)";
+            }
+            Instant savedAt;
+            try {
+                savedAt = repository.lastSaved(id);
+            } catch (IllegalArgumentException e) {
+                continue; // deleted while listing
+            }
+            stories.add(new SavedStory(id, title, savedAt));
+        }
+        return stories;
     }
 
     private void switchTo(StorySession next) {

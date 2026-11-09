@@ -35,10 +35,14 @@ class StoryCLITest {
     }
 
     private Run run(String script) {
+        return run(script, 0);
+    }
+
+    private Run run(String script, int charsPerSecond) {
         StoryController controller = new StoryController(new JsonSessionRepository(dir), StoryAgent.create(llm));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
-        StoryCLI cli = new StoryCLI(controller, new BufferedReader(new StringReader(script)), out);
+        StoryCLI cli = new StoryCLI(controller, new BufferedReader(new StringReader(script)), out, charsPerSecond);
         controller.addObserver(cli);
         cli.run();
         return new Run(controller, bytes.toString(StandardCharsets.UTF_8));
@@ -173,6 +177,20 @@ class StoryCLITest {
         assertTrue(out.contains("Error: Usage: do <text>"));
         assertFalse(out.contains("The letter is stolen"), "the plan is never printed");
         assertTrue(r.controller().getSession().getTurns().isEmpty());
+    }
+
+    @Test
+    void aNewTurnIsPrintedAtTheGivenPaceButTheTranscriptIsNot() {
+        withPlan().enqueue(LLMResponse.ofText("Snow settles on the gate, slowly."));
+        long started = System.nanoTime();
+        Run r = run("start\n\nAshfall\nA courier carries a letter.\n\nA city under snow\n\n\n"
+                + "do open the gate\nturns\n", 300);
+        long millis = (System.nanoTime() - started) / 1_000_000;
+        // 33 characters at 6 per 20 ms step: at least 6 pauses for the new turn.
+        assertTrue(millis >= 6 * TranscriptPacer.TICK_MS, "took " + millis + " ms");
+        assertTrue(r.output().contains("\nSnow settles on the gate, slowly.\n"), "the narration arrives whole");
+        assertEquals(2, r.output().split("Snow settles on the gate, slowly.", -1).length - 1,
+                "printed once as it arrives and once by \"turns\"");
     }
 
     @Test
@@ -345,6 +363,12 @@ class StoryCLITest {
     }
 
     @Test
+    void withNoSavesTheCliSaysNoStoriesDetected() {
+        Run r = run("quit\n");
+        assertTrue(r.output().contains("No stories detected. Type \"start\" to create a story."));
+    }
+
+    @Test
     void saveListAndLoad() {
         Run first = run("""
                 new
@@ -356,7 +380,11 @@ class StoryCLITest {
                 """);
         String id = first.controller().getSession().getId();
         Run second = run("sessions\nload " + id + "\nload nope\nchar list\n");
-        assertTrue(second.output().contains(id));
+        String saved = StoryGUI.savedLabel(first.controller().listSavedStories().get(0).savedAt(), java.time.ZoneId.systemDefault());
+        String line = "  " + id + "  Untitled story  (saved " + saved + ")\n";
+        assertTrue(second.output().contains("Select a story:\n" + line
+                + "Type \"load <id>\" to open one, or \"start\" to create a story."), "the start screen lists it");
+        assertTrue(second.output().contains("> " + line), "and so does \"sessions\"");
         assertTrue(second.output().contains("Loaded \"" + id + "\": 0 lore entries, 1 characters, 0 turns."));
         assertTrue(second.output().contains("Error: There is no saved story called nope."));
         assertTrue(second.output().contains("Mira"));

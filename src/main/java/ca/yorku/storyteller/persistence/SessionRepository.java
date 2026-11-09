@@ -2,6 +2,7 @@ package ca.yorku.storyteller.persistence;
 
 import ca.yorku.storyteller.model.StorySession;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -28,4 +29,11 @@ public interface SessionRepository {
 
     /** Ids of the saved sessions, most recently saved first. */
     List<String> listSessions();
+
+    /**
+     * When a session was last saved.
+     *
+     * @throws IllegalArgumentException if no session with that id was saved
+     */
+    Instant lastSaved(String id);
 }

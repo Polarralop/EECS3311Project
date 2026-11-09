@@ -136,6 +136,32 @@ class StoryControllerTest {
     }
 
     @Test
+    void savedStoriesAreListedNewestFirstWithTheirTitles() throws Exception {
+        assertTrue(controller.listSavedStories().isEmpty());
+        llm.enqueue(LLMResponse.ofText("{\"events\": [\"The gate falls.\"]}"));
+        controller.startStory(new Scenario("Ember Road", "A courier.", "", "A snowy city.", ""), "");
+        controller.saveSession();
+        String titled = controller.getSession().getId();
+        StorySession untitled = controller.newSession();
+        controller.saveSession();
+        // Make the order certain: the titled story was saved last.
+        java.nio.file.Files.setLastModifiedTime(dir.resolve(untitled.getId() + ".json"),
+                java.nio.file.attribute.FileTime.fromMillis(1_000));
+        java.nio.file.Files.writeString(dir.resolve("story-broken.json"), "{ not json");
+        java.nio.file.Files.setLastModifiedTime(dir.resolve("story-broken.json"),
+                java.nio.file.attribute.FileTime.fromMillis(500));
+
+        var stories = controller.listSavedStories();
+
+        assertEquals(List.of(titled, untitled.getId(), "story-broken"), stories.stream().map(SavedStory::id).toList());
+        assertEquals(List.of("Ember Road", StorySession.UNTITLED, "(cannot be read)"),
+                stories.stream().map(SavedStory::title).toList());
+        assertEquals(java.time.Instant.ofEpochMilli(1_000), stories.get(1).savedAt(), "when the file was last saved");
+        assertEquals(java.time.Instant.ofEpochMilli(500), stories.get(2).savedAt());
+        assertSame(untitled, controller.getSession(), "listing does not change the open story");
+    }
+
+    @Test
     void undoHistoryIsEmptyAfterALoad() {
         StorySession s = controller.newSession();
         controller.saveSession();
