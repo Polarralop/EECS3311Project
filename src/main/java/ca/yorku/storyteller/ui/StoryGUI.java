@@ -12,12 +12,14 @@ import ca.yorku.storyteller.model.StorySession;
 import ca.yorku.storyteller.model.Turn;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -48,7 +50,6 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -62,6 +63,10 @@ import javax.swing.event.DocumentListener;
 /**
  * Swing front end. Displays session state and forwards user actions to the controller; it holds no
  * story logic. Every list is re-read from the session in {@link #onStoryChanged}.
+ *
+ * <p>An open story is one screen: the story (recap card, transcript, turn controls) with a sidebar on
+ * its right that holds the lore used this turn and the Lore, Characters and Proposals tabs. The
+ * sidebar collapses to leave the story the whole window. Colours come from {@link StoryTheme}.
  *
  * <p>The panels are built in the constructor and the window only in {@link #open()}, so the panels
  * can be exercised in tests without a display. Model calls (starting a story, a turn, a retry) run on a
@@ -85,9 +90,21 @@ public class StoryGUI implements StoryObserver {
     static final String STORY_CARD = "story";
     private String shownCard;
 
-    final JTabbedPane tabs = new JTabbedPane();
-    /** Longest story title shown on the first tab; longer ones are cut and shown whole in its tooltip. */
-    static final int TAB_TITLE_LENGTH = 40;
+    /** The open story: its name on top, the story in the middle, the sidebar on the right. */
+    private final JPanel storyCard = new JPanel(new BorderLayout());
+    /** The name of the open story, above the transcript; a title too long to fit is whole in its tooltip. */
+    final JLabel storyHeading = new JLabel(StorySession.UNTITLED);
+
+    // Sidebar (F02, F03, F04, F07): the lore used this turn, then the Lore, Characters and Proposals tabs
+    final JPanel sidebar = new JPanel(new BorderLayout(0, 10));
+    final JTabbedPane sidebarTabs = new JTabbedPane();
+    /** Collapses the sidebar and brings it back; while collapsed it also counts the waiting proposals. */
+    final JButton sidebarToggle = new JButton();
+    static final int SIDEBAR_WIDTH = 400;
+    static final int LORE_TAB = 0;
+    static final int CHARACTERS_TAB = 1;
+    static final int PROPOSALS_TAB = 2;
+    private int waitingProposals;
 
     // Start screen (F01, F11): pick a saved story, or create one
     private final JPanel home = new JPanel(new GridBagLayout());
@@ -110,13 +127,19 @@ public class StoryGUI implements StoryObserver {
         return s.title() + "  (saved " + savedLabel(s.savedAt(), ZoneId.systemDefault()) + ")";
     }
 
-    /** Draws a saved story as its title, then when it was saved in grey. */
+    /** The colour of the "Saved ..." note next to a story's title, as "#rrggbb". */
+    static String savedColour(boolean selected) {
+        Color c = selected ? StoryTheme.TEXT : StoryTheme.MUTED;
+        return String.format("#%06x", c.getRGB() & 0xFFFFFF);
+    }
+
+    /** Draws a saved story as its title, then when it was saved in a quieter colour. */
     static final class SavedStoryRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                       boolean selected, boolean focus) {
             SavedStory s = (SavedStory) value;
-            String grey = selected ? "#505050" : "#808080";
+            String grey = savedColour(selected);
             String html = "<html>" + escape(s.title()) + "&nbsp;&nbsp;<font color='" + grey + "'>Saved "
                     + savedLabel(s.savedAt(), ZoneId.systemDefault()) + "</font></html>";
             return super.getListCellRendererComponent(list, html, index, selected, focus);
@@ -130,9 +153,12 @@ public class StoryGUI implements StoryObserver {
     // Story tab (F04, F10)
     final JLabel storyTitle = new JLabel();
     // Recap after loading a story (F09), at the top of the Story tab
-    final JTextArea recap = new JTextArea(4, 40);
-    final JPanel recapPanel = new JPanel(new BorderLayout(4, 4));
-    final JButton hideRecap = new JButton("Hide");
+    final JTextArea recap = new JTextArea();
+    final JPanel recapPanel = new JPanel(new BorderLayout());
+    final JLabel recapHeading = StoryTheme.sectionLabel("Story recap");
+    final JButton hideRecap = new JButton("Dismiss");
+    /** The recap card grows with its text up to this many lines, then scrolls. */
+    static final int RECAP_ROWS = 5;
     /** The story the recap belongs to; the recap is hidden once another story is open. */
     private String recapSessionId;
     final JTextArea transcript = new JTextArea();
@@ -144,6 +170,8 @@ public class StoryGUI implements StoryObserver {
     private String shownSessionId;
     final DefaultListModel<LoreEntry> usedLoreItems = new DefaultListModel<>();
     final JList<LoreEntry> usedLoreList = new JList<>(usedLoreItems);
+    final JLabel usedLoreEmpty = new JLabel("No lore was looked up in the last turn.");
+    private JScrollPane usedLoreScroll;
     final JComboBox<String> modeChoice;
     final JTextArea input = new JTextArea(3, 40);
     final JButton send = new JButton("Send");
@@ -165,44 +193,47 @@ public class StoryGUI implements StoryObserver {
     final JPanel startForm;
     private JDialog startDialog;
 
-    // Lore proposals (F07), in the Lore tab
+    // Lore proposals (F07), in the sidebar's Proposals tab
     final DefaultListModel<LoreProposal> proposalItems = new DefaultListModel<>();
     final JList<LoreProposal> proposalList = new JList<>(proposalItems);
-    final JTextArea proposalContent = new JTextArea(3, 30);
+    final JTextArea proposalContent = new JTextArea(6, 20);
+    final JLabel proposalHint = new JLabel();
     final JButton approve = new JButton("Approve");
     final JButton reject = new JButton("Reject");
-    private final JPanel proposalPanel = new JPanel(new BorderLayout(4, 4));
+    private final JPanel proposalPanel = new JPanel(new BorderLayout(0, 8));
 
     /** True while a model call runs; the controls that would start another one are disabled. */
     private boolean busy;
 
-    // Lore tab (F02)
+    // Lore tab of the sidebar (F02)
     final JTextField loreSearch = new JTextField();
     final DefaultListModel<LoreEntry> loreItems = new DefaultListModel<>();
     final JList<LoreEntry> loreList = new JList<>(loreItems);
     final JTextField loreTitle = new JTextField();
-    final JTextArea loreContent = new JTextArea(6, 30);
+    final JTextArea loreContent = new JTextArea(5, 20);
     final JTextField loreTags = new JTextField();
     final JCheckBox lorePinned = new JCheckBox("Pinned (canon)");
-    final JButton loreNew = new JButton("New entry");
-    final JButton loreSave = new JButton("Save entry");
-    final JButton loreDelete = new JButton("Delete entry");
+    final JButton loreNew = new JButton("New");
+    final JButton loreSave = new JButton("Save");
+    final JButton loreDelete = new JButton("Delete");
     private String editingLoreId;
 
-    // Characters tab (F03)
+    // Characters tab of the sidebar (F03)
+    /** A relationship belongs to the character it is added from; the other character gets none back. */
+    static final String RELATIONSHIPS_TITLE = "Relationships (one-way)";
     final DefaultListModel<Character> characterItems = new DefaultListModel<>();
     final JList<Character> characterList = new JList<>(characterItems);
     final JTextField characterName = new JTextField();
-    final JTextArea characterDescription = new JTextArea(4, 30);
+    final JTextArea characterDescription = new JTextArea(3, 20);
     final JTextField characterTraits = new JTextField();
     final DefaultListModel<Relationship> relationshipItems = new DefaultListModel<>();
     final JList<Relationship> relationshipList = new JList<>(relationshipItems);
     final JComboBox<String> relationshipTarget = new JComboBox<>();
     final JTextField relationshipType = new JTextField(10);
     final JTextField relationshipNotes = new JTextField(14);
-    final JButton characterNew = new JButton("New character");
-    final JButton characterSave = new JButton("Save character");
-    final JButton characterDelete = new JButton("Delete character");
+    final JButton characterNew = new JButton("New");
+    final JButton characterSave = new JButton("Save");
+    final JButton characterDelete = new JButton("Delete");
     final JButton relationshipAdd = new JButton("Add");
     final JButton relationshipRemove = new JButton("Remove selected");
     private String editingCharacterName;
@@ -215,15 +246,17 @@ public class StoryGUI implements StoryObserver {
         modeChoice = new JComboBox<>(controller.modeNames().toArray(new String[0]));
         startForm = buildStartForm();
         buildMenu();
-        // The first tab is named after the open story (see refreshStory), not "Story", which is the menu.
-        tabs.addTab(StorySession.UNTITLED, buildStoryTab());
-        tabs.addTab("Lore", buildLoreTab());
-        tabs.addTab("Characters", buildCharacterTab());
         buildHome();
+        buildStoryCard();
         cards.add(home, HOME_CARD);
-        cards.add(tabs, STORY_CARD);
+        cards.add(storyCard, STORY_CARD);
         root.add(cards, BorderLayout.CENTER);
-        status.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        status.setOpaque(true);
+        status.setBackground(StoryTheme.BASE);
+        status.setForeground(StoryTheme.MUTED);
+        status.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, StoryTheme.LINE),
+                BorderFactory.createEmptyBorder(5, 16, 5, 16)));
         root.add(status, BorderLayout.SOUTH);
         refreshStoryControls();
         if (controller.getSession() == null) {
@@ -250,7 +283,8 @@ public class StoryGUI implements StoryObserver {
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setJMenuBar(menuBar);
         frame.setContentPane(root);
-        frame.setSize(new Dimension(900, 600));
+        frame.setSize(new Dimension(1180, 740));
+        frame.setMinimumSize(new Dimension(760, 520));
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
     }
@@ -455,6 +489,8 @@ public class StoryGUI implements StoryObserver {
         savedStoryList.addListSelectionListener(e -> openStory.setEnabled(savedStoryList.getSelectedValue() != null));
         openStory.addActionListener(e -> act(this::openSelectedStory));
         createStory.addActionListener(e -> act(this::openStartForm));
+        home.setBackground(StoryTheme.BASE);
+        StoryTheme.primary(openStory);
     }
 
     /**
@@ -478,6 +514,7 @@ public class StoryGUI implements StoryObserver {
         if (stories.isEmpty()) {
             homeHeading.setText("No stories detected");
             home.add(homeHeading, c);
+            StoryTheme.primary(createStory);
             home.add(createStory, c);
         } else {
             homeHeading.setText("Select story");
@@ -486,7 +523,8 @@ public class StoryGUI implements StoryObserver {
             list.setPreferredSize(new Dimension(460, 220));
             home.add(list, c);
             savedStoryList.setSelectedIndex(0);
-            home.add(buttons(openStory, createStory), c);
+            StoryTheme.plain(createStory);
+            home.add(StoryTheme.layer(buttons(openStory, createStory), StoryTheme.BASE), c);
         }
         home.revalidate();
         home.repaint();
@@ -500,33 +538,44 @@ public class StoryGUI implements StoryObserver {
         loadStory(choice.id());
     }
 
-    /** Shows what was loaded and the agent's recap at the top of the Story tab (F09). */
+    /** Shows what was loaded and the agent's recap in a card above the transcript (F09). */
     void showRecap(String text) {
         recapSessionId = controller.getSession().getId();
         recap.setText(text);
         recap.setCaretPosition(0);
         recapPanel.setVisible(true);
-        tabs.setSelectedIndex(0);
     }
 
     // ---- story tab: turns, undo, retry, edit (F04, F10) ----
 
-    private Component buildStoryTab() {
+    private void buildStoryCard() {
+        storyHeading.setFont(storyHeading.getFont().deriveFont(Font.BOLD, 18f));
+        sidebarToggle.addActionListener(e -> setSidebarOpen(!isSidebarOpen()));
+        JPanel header = new JPanel(new BorderLayout(12, 0));
+        header.setBackground(StoryTheme.BASE);
+        header.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, StoryTheme.LINE),
+                BorderFactory.createEmptyBorder(8, 16, 8, 12)));
+        header.add(storyHeading, BorderLayout.CENTER);
+        header.add(sidebarToggle, BorderLayout.EAST);
+        storyCard.add(header, BorderLayout.NORTH);
+        storyCard.add(buildStoryColumn(), BorderLayout.CENTER);
+        storyCard.add(buildSidebar(), BorderLayout.EAST);
+        refreshSidebarToggle();
+    }
+
+    // ---- story column: recap, transcript, turns, undo, retry, edit (F04, F09, F10) ----
+
+    private Component buildStoryColumn() {
         storyTitle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        recap.setEditable(false);
-        recap.setLineWrap(true);
-        recap.setWrapStyleWord(true);
-        recapPanel.setBorder(BorderFactory.createTitledBorder("Welcome back: the story so far"));
-        recapPanel.add(new JScrollPane(recap), BorderLayout.CENTER);
-        recapPanel.add(buttons(hideRecap), BorderLayout.EAST);
-        recapPanel.setVisible(false);
-        hideRecap.addActionListener(e -> recapPanel.setVisible(false));
         JPanel north = new JPanel(new BorderLayout(4, 4));
         north.add(storyTitle, BorderLayout.NORTH);
-        north.add(recapPanel, BorderLayout.CENTER);
+        north.add(buildRecapCard(), BorderLayout.CENTER);
         transcript.setEditable(false);
         transcript.setLineWrap(true);
         transcript.setWrapStyleWord(true);
+        transcript.setMargin(new Insets(14, 18, 14, 18));
+        transcript.setFont(transcript.getFont().deriveFont(15f));
         transcript.setToolTipText("Click to show the rest of the text at once.");
         transcript.addMouseListener(new MouseAdapter() {
             @Override
@@ -534,6 +583,82 @@ public class StoryGUI implements StoryObserver {
                 pacer.skip();
             }
         });
+
+        JPanel turnButtons = new JPanel(new GridLayout(1, 3, 6, 0));
+        for (JButton b : List.of(undo, retry, edit)) {
+            turnButtons.add(b);
+        }
+        JPanel actions = new JPanel(new BorderLayout());
+        actions.add(turnButtons, BorderLayout.WEST);
+        actions.add(endStory, BorderLayout.EAST);
+
+        input.setLineWrap(true);
+        input.setWrapStyleWord(true);
+        StoryTheme.primary(send);
+        JPanel inputRow = new JPanel(new BorderLayout(6, 6));
+        inputRow.add(modeChoice, BorderLayout.WEST);
+        inputRow.add(new JScrollPane(input), BorderLayout.CENTER);
+        inputRow.add(send, BorderLayout.EAST);
+
+        JPanel south = new JPanel(new BorderLayout(6, 8));
+        south.add(actions, BorderLayout.NORTH);
+        south.add(inputRow, BorderLayout.SOUTH);
+
+        send.addActionListener(e -> act(this::submitInput));
+        undo.addActionListener(e -> act(this::undoTurn));
+        retry.addActionListener(e -> act(this::retryTurn));
+        edit.addActionListener(e -> act(this::editTurn));
+        endStory.addActionListener(e -> act(this::endStory));
+
+        JPanel p = new JPanel(new BorderLayout(8, 10));
+        p.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        p.add(north, BorderLayout.NORTH);
+        p.add(new JScrollPane(transcript), BorderLayout.CENTER);
+        p.add(south, BorderLayout.SOUTH);
+        return StoryTheme.layer(p, StoryTheme.SURFACE);
+    }
+
+    /**
+     * The recap as a card that sits on the story column: a raised shade with an accent stripe, a small
+     * heading and the text itself, no box around it. It is as tall as its text, up to RECAP_ROWS lines.
+     */
+    private Component buildRecapCard() {
+        recap.setEditable(false);
+        recap.setLineWrap(true);
+        recap.setWrapStyleWord(true);
+        recap.setOpaque(false);
+        recap.setMargin(new Insets(0, 0, 0, 0));
+        JScrollPane scroll = new JScrollPane(recap) {
+            @Override
+            public Dimension getPreferredSize() {
+                int line = recap.getFontMetrics(recap.getFont()).getHeight();
+                Dimension d = super.getPreferredSize();
+                d.height = Math.min(recap.getPreferredSize().height, line * RECAP_ROWS);
+                return d;
+            }
+        };
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        StoryTheme.quiet(hideRecap);
+        hideRecap.setToolTipText("Hide the recap. The story itself is not changed.");
+        hideRecap.addActionListener(e -> recapPanel.setVisible(false));
+        JPanel heading = new JPanel(new BorderLayout());
+        heading.setOpaque(false);
+        heading.add(recapHeading, BorderLayout.WEST);
+        heading.add(hideRecap, BorderLayout.EAST);
+        StoryTheme.Card card = new StoryTheme.Card(new BorderLayout(0, 6), StoryTheme.RAISED, StoryTheme.ACCENT_SOFT);
+        card.add(heading, BorderLayout.NORTH);
+        card.add(scroll, BorderLayout.CENTER);
+        recapPanel.setOpaque(false);
+        recapPanel.add(card, BorderLayout.CENTER);
+        recapPanel.setVisible(false);
+        return recapPanel;
+    }
+
+    // ---- sidebar: lore used this turn, Lore, Characters, Proposals (F02, F03, F04, F07) ----
+
+    private Component buildSidebar() {
         usedLoreList.setVisibleRowCount(3);
         usedLoreList.setToolTipText("Double-click an entry to open it in the Lore tab.");
         usedLoreList.addMouseListener(new MouseAdapter() {
@@ -544,46 +669,66 @@ public class StoryGUI implements StoryObserver {
                 }
             }
         });
-        JPanel used = new JPanel(new BorderLayout());
-        used.setBorder(BorderFactory.createTitledBorder("Lore used in the last turn"));
-        used.add(new JScrollPane(usedLoreList), BorderLayout.CENTER);
+        usedLoreList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean selected, boolean focus) {
+                return super.getListCellRendererComponent(list, loreLabel((LoreEntry) value), index, selected, focus);
+            }
+        });
+        usedLoreEmpty.setForeground(StoryTheme.MUTED);
+        usedLoreScroll = new JScrollPane(usedLoreList);
+        usedLoreScroll.setVisible(false);
+        JPanel usedBody = new JPanel(new BorderLayout());
+        usedBody.setOpaque(false);
+        usedBody.add(usedLoreEmpty, BorderLayout.NORTH);
+        usedBody.add(usedLoreScroll, BorderLayout.CENTER);
+        StoryTheme.Card used = new StoryTheme.Card(new BorderLayout(0, 6), StoryTheme.RAISED, null);
+        used.add(StoryTheme.sectionLabel("Lore used this turn"), BorderLayout.NORTH);
+        used.add(usedBody, BorderLayout.CENTER);
 
-        JPanel lastTurn = new JPanel(new BorderLayout());
-        lastTurn.add(used, BorderLayout.CENTER);
-        lastTurn.add(buttons(undo, retry, edit, endStory), BorderLayout.EAST);
+        sidebarTabs.addTab("Lore", buildLoreTab());
+        sidebarTabs.addTab("Characters", buildCharacterTab());
+        sidebarTabs.addTab("Proposals", buildProposalPanel());
 
-        input.setLineWrap(true);
-        input.setWrapStyleWord(true);
-        JPanel inputRow = new JPanel(new BorderLayout(4, 4));
-        inputRow.add(modeChoice, BorderLayout.WEST);
-        inputRow.add(new JScrollPane(input), BorderLayout.CENTER);
-        inputRow.add(send, BorderLayout.EAST);
+        sidebar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 1, 0, 0, StoryTheme.LINE),
+                BorderFactory.createEmptyBorder(12, 12, 10, 12)));
+        sidebar.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
+        sidebar.add(used, BorderLayout.NORTH);
+        sidebar.add(sidebarTabs, BorderLayout.CENTER);
+        return StoryTheme.layer(sidebar, StoryTheme.SIDEBAR);
+    }
 
-        JPanel south = new JPanel(new BorderLayout(4, 4));
-        south.add(lastTurn, BorderLayout.NORTH);
-        south.add(inputRow, BorderLayout.SOUTH);
+    /** True while the sidebar is showing; collapsed, the story takes the whole window. */
+    boolean isSidebarOpen() {
+        return sidebar.isVisible();
+    }
 
-        send.addActionListener(e -> act(this::submitInput));
-        undo.addActionListener(e -> act(this::undoTurn));
-        retry.addActionListener(e -> act(this::retryTurn));
-        edit.addActionListener(e -> act(this::editTurn));
-        endStory.addActionListener(e -> act(this::endStory));
+    void setSidebarOpen(boolean open) {
+        sidebar.setVisible(open);
+        refreshSidebarToggle();
+        storyCard.revalidate();
+    }
 
-        JPanel p = new JPanel(new BorderLayout(4, 4));
-        p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        p.add(north, BorderLayout.NORTH);
-        p.add(new JScrollPane(transcript), BorderLayout.CENTER);
-        p.add(south, BorderLayout.SOUTH);
-        return p;
+    private void refreshSidebarToggle() {
+        String waiting = waitingProposals == 0 ? "" : " (" + waitingProposals + ")";
+        sidebarToggle.setText(isSidebarOpen() ? "Hide lore & characters »" : "« Lore & characters" + waiting);
+        sidebarToggle.setToolTipText(isSidebarOpen() ? "Collapse the sidebar to give the story the whole window."
+                : waitingProposals == 0 ? "Show the lore, the characters and the lore used this turn."
+                : "Show the sidebar: " + waitingProposals + " lore proposal" + (waitingProposals == 1 ? "" : "s") + " waiting.");
+    }
+
+    /** How a lore entry reads in a list: its id, a star when pinned, its title. */
+    private static String loreLabel(LoreEntry e) {
+        return e.getId() + "  " + (e.isPinned() ? "★ " : "") + e.getTitle();
     }
 
     private void refreshStory(StorySession session) {
         Scenario sc = session.getScenario();
-        String title = session.getTitle();
-        tabs.setTitleAt(0, title.length() <= TAB_TITLE_LENGTH ? title
-                : title.substring(0, TAB_TITLE_LENGTH - 3).strip() + "...");
-        tabs.setToolTipTextAt(0, title);
-        // The tab already names the story; the line above the transcript only explains how to start one.
+        storyHeading.setText(session.getTitle());
+        storyHeading.setToolTipText(session.getTitle());
+        // The heading already names the story; the line above the transcript only explains how to start one.
         storyTitle.setText(sc == null ? "Story not started yet. Use Story > Start story..." : "");
         storyTitle.setVisible(sc == null);
         if (!session.getId().equals(recapSessionId)) {
@@ -617,6 +762,8 @@ public class StoryGUI implements StoryObserver {
                         .ifPresent(usedLoreItems::addElement);
             }
         });
+        usedLoreEmpty.setVisible(usedLoreItems.isEmpty());
+        usedLoreScroll.setVisible(!usedLoreItems.isEmpty());
         refreshStoryControls();
     }
 
@@ -694,8 +841,10 @@ public class StoryGUI implements StoryObserver {
         runInBackground("The storyteller is writing the ending...", controller::requestEnding, ending -> { }, () -> { });
     }
 
-    private void openLoreEntry(String id) {
-        tabs.setSelectedIndex(1);
+    /** Opens a lore entry in the sidebar's Lore tab, bringing the sidebar back if it is collapsed. */
+    void openLoreEntry(String id) {
+        setSidebarOpen(true);
+        sidebarTabs.setSelectedIndex(LORE_TAB);
         loreSearch.setText("");
         editingLoreId = id;
         refreshLore();
@@ -722,6 +871,7 @@ public class StoryGUI implements StoryObserver {
                 "Plot basis (optional, kept hidden)", new JScrollPane(plotBasis));
         generate.addActionListener(e -> act(this::generateDraft));
         startButton.addActionListener(e -> act(this::startStory));
+        StoryTheme.primary(startButton);
         JPanel p = new JPanel(new BorderLayout(4, 4));
         p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         p.add(idea, BorderLayout.NORTH);
@@ -757,7 +907,6 @@ public class StoryGUI implements StoryObserver {
             for (JTextArea a : List.of(scenarioPremise, scenarioSetting, scenarioOpening, plotBasis)) {
                 a.setText("");
             }
-            tabs.setSelectedIndex(0);
         }, () -> { });
     }
 
@@ -765,7 +914,7 @@ public class StoryGUI implements StoryObserver {
 
     private Component buildProposalPanel() {
         proposalList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        proposalList.setVisibleRowCount(4);
+        proposalList.setVisibleRowCount(5);
         proposalList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
@@ -777,18 +926,21 @@ public class StoryGUI implements StoryObserver {
         proposalList.addListSelectionListener(e -> {
             LoreProposal p = proposalList.getSelectedValue();
             proposalContent.setText(p == null ? "" : p.getContent());
+            proposalContent.setCaretPosition(0);
         });
         proposalContent.setEditable(false);
         proposalContent.setLineWrap(true);
         proposalContent.setWrapStyleWord(true);
+        proposalHint.setForeground(StoryTheme.MUTED);
         approve.addActionListener(e -> act(() -> resolveSelected(true)));
         reject.addActionListener(e -> act(() -> resolveSelected(false)));
-        JPanel center = new JPanel(new BorderLayout(4, 4));
-        center.add(new JScrollPane(proposalList), BorderLayout.WEST);
-        center.add(new JScrollPane(proposalContent), BorderLayout.CENTER);
-        proposalPanel.add(center, BorderLayout.CENTER);
+        JPanel top = new JPanel(new BorderLayout(0, 8));
+        top.add(proposalHint, BorderLayout.NORTH);
+        top.add(new JScrollPane(proposalList), BorderLayout.CENTER);
+        proposalPanel.setBorder(BorderFactory.createEmptyBorder(10, 2, 0, 2));
+        proposalPanel.add(top, BorderLayout.NORTH);
+        proposalPanel.add(new JScrollPane(proposalContent), BorderLayout.CENTER);
         proposalPanel.add(buttons(approve, reject), BorderLayout.SOUTH);
-        proposalPanel.setBorder(BorderFactory.createTitledBorder("Proposals from the storyteller (0 waiting)"));
         return proposalPanel;
     }
 
@@ -802,8 +954,16 @@ public class StoryGUI implements StoryObserver {
             proposalContent.setText("");
         }
         int waiting = proposalItems.size();
-        proposalPanel.setBorder(BorderFactory.createTitledBorder("Proposals from the storyteller (" + waiting + " waiting)"));
-        tabs.setTitleAt(1, waiting == 0 ? "Lore" : "Lore (" + waiting + ")");
+        waitingProposals = waiting;
+        proposalHint.setText(waiting == 0
+                ? "<html>No proposals waiting. When the storyteller suggests new lore, it appears here for you"
+                        + " to approve or reject.</html>"
+                : "<html>The storyteller suggests " + (waiting == 1 ? "this entry" : "these entries")
+                        + ". Nothing joins the lore until you approve it.</html>");
+        approve.setEnabled(waiting > 0);
+        reject.setEnabled(waiting > 0);
+        sidebarTabs.setTitleAt(PROPOSALS_TAB, waiting == 0 ? "Proposals" : "Proposals (" + waiting + ")");
+        refreshSidebarToggle();
     }
 
     void resolveSelected(boolean approved) {
@@ -818,13 +978,12 @@ public class StoryGUI implements StoryObserver {
 
     private Component buildLoreTab() {
         loreList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        loreList.setVisibleRowCount(5);
         loreList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                           boolean selected, boolean focus) {
-                LoreEntry e = (LoreEntry) value;
-                String text = e.getId() + "  " + (e.isPinned() ? "★ " : "") + e.getTitle();
-                return super.getListCellRendererComponent(list, text, index, selected, focus);
+                return super.getListCellRendererComponent(list, loreLabel((LoreEntry) value), index, selected, focus);
             }
         });
         loreList.addListSelectionListener(e -> {
@@ -834,27 +993,30 @@ public class StoryGUI implements StoryObserver {
         });
         loreSearch.getDocument().addDocumentListener(onChange(() -> act(this::refreshLore)));
 
-        JPanel left = new JPanel(new BorderLayout(4, 4));
-        left.add(labelled("Search", loreSearch), BorderLayout.NORTH);
-        left.add(new JScrollPane(loreList), BorderLayout.CENTER);
+        JPanel entries = new JPanel(new BorderLayout(4, 8));
+        entries.add(labelled("Search", loreSearch), BorderLayout.NORTH);
+        entries.add(new JScrollPane(loreList), BorderLayout.CENTER);
 
         loreContent.setLineWrap(true);
         loreContent.setWrapStyleWord(true);
+        loreTags.setToolTipText("Separate tags with commas.");
         JPanel form = form(
                 "Title", loreTitle,
                 "Content", new JScrollPane(loreContent),
-                "Tags (comma separated)", loreTags,
+                "Tags", loreTags,
                 "", lorePinned);
         loreNew.addActionListener(e -> clearLoreForm());
         loreSave.addActionListener(e -> act(this::saveLoreEntry));
         loreDelete.addActionListener(e -> act(this::deleteLoreEntry));
-        JPanel right = new JPanel(new BorderLayout());
-        right.add(form, BorderLayout.NORTH);
-        right.add(buttons(loreNew, loreSave, loreDelete), BorderLayout.SOUTH);
+        JPanel editor = new JPanel(new BorderLayout());
+        editor.add(form, BorderLayout.CENTER);
+        editor.add(editorButtons(loreNew, loreSave, loreDelete), BorderLayout.SOUTH);
 
-        JPanel tab = new JPanel(new BorderLayout());
-        tab.add(split(left, right), BorderLayout.CENTER);
-        tab.add(buildProposalPanel(), BorderLayout.SOUTH);
+        // The sidebar is narrow, so the entries sit above the editor instead of beside it.
+        JPanel tab = new JPanel(new BorderLayout(0, 8));
+        tab.setBorder(BorderFactory.createEmptyBorder(10, 2, 0, 2));
+        tab.add(entries, BorderLayout.CENTER);
+        tab.add(editor, BorderLayout.SOUTH);
         return tab;
     }
 
@@ -921,37 +1083,40 @@ public class StoryGUI implements StoryObserver {
 
     private Component buildCharacterTab() {
         characterList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        characterList.setVisibleRowCount(4);
         characterList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && !refreshing && characterList.getSelectedValue() != null) {
                 showCharacter(characterList.getSelectedValue());
             }
         });
-        JPanel left = new JPanel(new BorderLayout());
-        left.add(new JScrollPane(characterList), BorderLayout.CENTER);
 
         characterDescription.setLineWrap(true);
         characterDescription.setWrapStyleWord(true);
+        characterTraits.setToolTipText("Separate traits with commas.");
         JPanel form = form(
                 "Name", characterName,
                 "Description", new JScrollPane(characterDescription),
-                "Traits (comma separated)", characterTraits);
+                "Traits", characterTraits);
 
         JPanel relationships = new JPanel(new BorderLayout(4, 4));
-        relationships.setBorder(BorderFactory.createTitledBorder("Relationships (one way, from this character)"));
-        relationshipList.setVisibleRowCount(4);
+        relationships.setBorder(BorderFactory.createTitledBorder(RELATIONSHIPS_TITLE));
+        relationshipList.setVisibleRowCount(2);
         relationships.add(new JScrollPane(relationshipList), BorderLayout.CENTER);
-        JPanel removeRow = new JPanel(new BorderLayout());
-        removeRow.add(relationshipRemove, BorderLayout.NORTH);
-        relationships.add(removeRow, BorderLayout.EAST);
-        JPanel addRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        addRow.add(new JLabel("To"));
-        addRow.add(relationshipTarget);
-        addRow.add(new JLabel("Type"));
-        addRow.add(relationshipType);
-        addRow.add(new JLabel("Notes"));
-        addRow.add(relationshipNotes);
-        addRow.add(relationshipAdd);
-        relationships.add(addRow, BorderLayout.SOUTH);
+        relationshipNotes.setToolTipText("Optional notes about the relationship.");
+        // To and Type share a row so the character list above keeps a few rows in the narrow sidebar.
+        JPanel type = new JPanel(new BorderLayout(6, 0));
+        type.add(new JLabel("Type"), BorderLayout.WEST);
+        type.add(relationshipType, BorderLayout.CENTER);
+        JPanel toAndType = new JPanel(new GridLayout(1, 2, 8, 0));
+        toAndType.add(relationshipTarget);
+        toAndType.add(type);
+        JPanel addRow = form(
+                "To", toAndType,
+                "Notes", relationshipNotes);
+        JPanel addPanel = new JPanel(new BorderLayout());
+        addPanel.add(addRow, BorderLayout.CENTER);
+        addPanel.add(buttons(relationshipAdd, relationshipRemove), BorderLayout.SOUTH);
+        relationships.add(addPanel, BorderLayout.SOUTH);
 
         characterNew.addActionListener(e -> clearCharacterForm());
         characterSave.addActionListener(e -> act(this::saveCharacter));
@@ -959,11 +1124,17 @@ public class StoryGUI implements StoryObserver {
         relationshipAdd.addActionListener(e -> act(this::addRelationship));
         relationshipRemove.addActionListener(e -> act(this::removeRelationship));
 
-        JPanel right = new JPanel(new BorderLayout(4, 4));
-        right.add(form, BorderLayout.NORTH);
-        right.add(relationships, BorderLayout.CENTER);
-        right.add(buttons(characterNew, characterSave, characterDelete), BorderLayout.SOUTH);
-        return split(left, right);
+        JPanel editor = new JPanel(new BorderLayout());
+        editor.add(form, BorderLayout.NORTH);
+        editor.add(editorButtons(characterNew, characterSave, characterDelete), BorderLayout.CENTER);
+        editor.add(relationships, BorderLayout.SOUTH);
+
+        // The sidebar is narrow, so the characters sit above the editor instead of beside it.
+        JPanel tab = new JPanel(new BorderLayout(0, 8));
+        tab.setBorder(BorderFactory.createEmptyBorder(10, 2, 0, 2));
+        tab.add(new JScrollPane(characterList), BorderLayout.CENTER);
+        tab.add(editor, BorderLayout.SOUTH);
+        return tab;
     }
 
     private void refreshCharacters(StorySession session) {
@@ -1089,7 +1260,9 @@ public class StoryGUI implements StoryObserver {
             c.gridx = 0;
             c.weightx = 0;
             c.fill = GridBagConstraints.NONE;
+            c.insets = new Insets(8, 4, 4, 4); // level with the first line of text in the field
             p.add(new JLabel((String) labelAndField[i]), c);
+            c.insets = new Insets(4, 4, 4, 4);
             c.gridx = 1;
             c.weightx = 1;
             c.fill = GridBagConstraints.HORIZONTAL;
@@ -1113,11 +1286,14 @@ public class StoryGUI implements StoryObserver {
         return p;
     }
 
-    private static JSplitPane split(Component left, Component right) {
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
-        split.setDividerLocation(260);
-        split.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        return split;
+    /** New on the left, apart from the buttons that act on the entry in the form, on the right. */
+    private static JPanel editorButtons(JButton create, JButton... onEntry) {
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        left.add(create);
+        JPanel p = new JPanel(new BorderLayout());
+        p.add(left, BorderLayout.WEST);
+        p.add(buttons(onEntry), BorderLayout.EAST);
+        return p;
     }
 
     private static DocumentListener onChange(Runnable r) {
@@ -1142,6 +1318,7 @@ public class StoryGUI implements StoryObserver {
     public static void main(String[] args) {
         StoryController controller = StoryCLI.createController();
         SwingUtilities.invokeLater(() -> {
+            StoryTheme.install();
             StoryGUI gui = new StoryGUI(controller);
             controller.addObserver(gui);
             gui.open();

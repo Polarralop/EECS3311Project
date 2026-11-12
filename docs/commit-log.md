@@ -40,3 +40,7 @@ At least 5 meaningful code commits per period (Toronto time). Report-only, forma
 | 7 | [04dae82](https://github.com/Polarralop/EECS3311Project/commit/04dae82) | feat(ui): reveal new story text gradually in both front ends | F04, F10, F12 (GUI, CLI) |
 | 8 | [ff829a3](https://github.com/Polarralop/EECS3311Project/commit/ff829a3) | feat(controller): list saved stories by title and open the CLI to them | F11 (CLI) |
 | 9 | [63a3cc5](https://github.com/Polarralop/EECS3311Project/commit/63a3cc5) | feat(ui): open StoryGUI to a story picker and name the tab after the story | F01, F11 (GUI) |
+| 10 | [57725a1](https://github.com/Polarralop/EECS3311Project/commit/57725a1) | feat(ui): show when each saved story was saved instead of its id | F11 (GUI, CLI) |
+| 11 | [29010dd](https://github.com/Polarralop/EECS3311Project/commit/29010dd) | feat(ui): give StoryGUI a deep blue-purple palette with layered shades | GUI look (StoryTheme) |
+| 12 | [6af4015](https://github.com/Polarralop/EECS3311Project/commit/6af4015) | feat(ui): move lore, characters and used lore into a collapsible sidebar | F02, F03, F04, F07, F09 (GUI) |
+| 13 | [31d9c33](https://github.com/Polarralop/EECS3311Project/commit/31d9c33) | feat(ui): set New apart in the sidebar editors and rename the recap heading | F02, F03, F09 (GUI) |
