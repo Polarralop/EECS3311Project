@@ -21,7 +21,7 @@ The design is the Stage 1 report, `Stage1_Report.docx`, with its diagrams in `fi
 
 Do not edit `Stage1_Report.docx`; it is the submitted Stage 1 deliverable. If the code has to differ from the design, that is allowed, but log it (see "Changing the design").
 
-The Stage 2 deliverable is `Stage2_Report.docx`, built from the Stage 1 report's styles and kept current as features land (see "Keeping the Stage 2 report current").
+The Stage 2 deliverable is `stage2-report.docx`, built from the Stage 1 report's styles and kept current as features land (see "Keeping the Stage 2 report current").
 
 ## Layout
 
@@ -38,7 +38,7 @@ src/main/resources/prompts/   prompt text loaded by the agent
 src/test/java/...             JUnit tests, mirroring the main packages
 samples/                      safe sample sessions (no keys, no personal data)
 docs/                         running logs that feed the Stage 2 report
-Stage2_Report.docx            the Stage 2 report, filled in as features land
+stage2-report.docx            the Stage 2 report, filled in as features land
 ```
 
 Put a new class in the package its Stage 1 diagram puts it in. Do not create new top-level packages without logging the change.
@@ -108,7 +108,7 @@ Follow these steps for every feature (F01 to F12) or substantial change:
    - `docs/feature-map.md`: update the status, the classes and files, and the key methods actually built.
    - `docs/changes-from-stage1.md`: add an entry if anything differs from Stage 1 (see below).
    - `COST-TRACKING.md` and `docs/ai-tool-log.md`: add a row for the session (see below).
-   - `Stage2_Report.docx`: when a feature or pattern becomes Done or Changed, fill in its section (see below).
+   - `stage2-report.docx`: when a feature or pattern becomes Done or Changed, fill in its section (see below).
 7. **Open a pull request** with a summary, the features it touches (`Refs: F04`), how it was tested, and any change from Stage 1.
 
 ### Changing the design
@@ -117,7 +117,7 @@ Any added, replaced, removed or substantially modified feature, class or pattern
 
 ## Keeping the Stage 2 report current
 
-`Stage2_Report.docx` is the Stage 2 report. Its structure follows the course's Stage 2 requirements and its look follows `Stage1_Report.docx`. Grey italic text in square brackets is a placeholder; replace it with real content in normal (black, non-italic) text. Do not regenerate the file or restyle it, because that would wipe filled-in sections. Edit it in place with python-docx (`pip install python-docx`) or Word, and keep the existing tables and headings.
+`stage2-report.docx` is the Stage 2 report. Its structure follows the course's Stage 2 requirements and its look follows `Stage1_Report.docx`. Grey italic text in square brackets is a placeholder; replace it with real content in normal (black, non-italic) text. Do not regenerate the file or restyle it, because that would wipe filled-in sections. Edit it in place with python-docx (`pip install python-docx`) or Word, and keep the existing tables and headings.
 
 The markdown logs stay the working record and the report is filled from them:
 
