@@ -491,3 +491,216 @@ ALL = {
     "07-agent-tools": agent_tools,
     "09-persistence": persistence,
 }
+
+
+
+def overview():
+    """Figure 1: every class in the code by name, grouped by package, with the main relationships.
+
+    Members are left out; Figures 2 to 9 show them package by package.
+    """
+    from umlgen import PKG, PKG_LINE, MUTED, SANS, svg_doc, t
+
+    def c(name, x, y, stereo=None, ref=False):
+        return Box(name, x, y, stereo=stereo, compact=True, ref=ref)
+
+    def poly(*pts, kind="assoc", **kw):
+        return link(list(pts), kind, **kw)
+
+    # ---- row 1: ui, controller, agent
+    obs = c("StoryObserver", 50, 100, "interface")
+    gui = c("StoryGUI", 300, 100)
+    cli = c("StoryCLI", 300, 190)
+    pacer = c("TranscriptPacer", 50, 320)
+    theme = c("StoryTheme", 300, 320)
+
+    ctl = c("StoryController", 640, 100)
+    hist = c("CommandHistory", 640, 200)
+    saved = c("SavedStory", 870, 170, "record")
+    cmd = c("StoryCommand", 640, 290, "interface")
+    sub = c("SubmitTurnCommand", 640, 400)
+    edit = c("EditTurnCommand", 880, 400)
+
+    agent = c("StoryAgent", 1170, 100)
+    planner = c("PlotPlanner", 1440, 90)
+    checker = c("ConsistencyChecker", 1440, 160)
+    memory = c("MemoryManager", 1440, 230)
+    ims = c("InputModeStrategy", 1210, 330, "interface")
+    do = c("DoModeStrategy", 1500, 310)
+    say = c("SayModeStrategy", 1500, 370)
+    story = c("StoryModeStrategy", 1500, 430)
+
+    # ---- row 2: persistence, model, agent.tools, llm
+    repo = c("SessionRepository", 50, 640, "interface")
+    jrepo = c("JsonSessionRepository", 50, 760)
+
+    sess = c("StorySession", 400, 810)
+    parts = [c(n, 640, 640 + i * 76) for i, n in enumerate(
+        ["Scenario", "LoreBook", "Turn", "LoreProposal", "Plot", "Character"])]
+    scen, book, turn, prop, plot, char = parts
+    entry = c("LoreEntry", 880, book.y)
+    pstat = c("ProposalStatus", 880, prop.y - 9, "enumeration")
+    event = c("PivotalEvent", 880, plot.y)
+    estat = c("EventStatus", 1110, plot.y - 9, "enumeration")
+    rel = c("Relationship", 880, char.y)
+
+    reg = c("ToolRegistry", 1330, 640)
+    tcall = c("ToolCall", 1330, 740, "record")
+    tool = c("AgentTool", 1330, 860, "interface")
+    tres = c("ToolResult", 1330, 990, "record")
+    tools = [c(n, 1580, 760 + i * 66) for i, n in
+             enumerate(["SearchLoreTool", "GetCharacterTool", "ProposeLoreTool", "UpdatePlotTool"])]
+
+    llm = c("LLMClient", 1920, 640, "interface")
+    fake = c("FakeLLMClient", 1920, 770)
+    claude = c("ClaudeAdapter", 1920, 850)
+    api = c("AnthropicApi", 1920, 960, "external", ref=True)
+    exc = c("LLMException", 1920, 1090)
+    req = c("LLMRequest", 2190, 640)
+    msg = c("LLMMessage", 2190, 730)
+    spec = c("LLMToolSpec", 2190, 810, "record")
+    resp = c("LLMResponse", 2190, 930)
+    lcall = c("LLMToolCall", 2190, 1020, "record")
+    lres = c("LLMToolResult", 2400, 721, "record")
+
+    for group in ([do, say, story], tools, [planner, checker, memory], parts, [fake, claude, exc],
+                  [entry, rel, event], [req, resp, msg, spec, lcall], [pacer, obs], [gui, cli]):
+        w = max(b.w for b in group)
+        for b in group:
+            b.w = w
+
+    boxes = [obs, gui, cli, pacer, theme, ctl, hist, saved, cmd, sub, edit, agent, planner, checker, memory,
+             ims, do, say, story, repo, jrepo, sess, entry, pstat, event, estat, rel, reg, tcall, tool, tres,
+             llm, fake, claude, api, exc, req, msg, spec, resp, lcall, lres] + parts + tools
+
+    def frame(name, bs, pad=26):
+        x0 = min(b.x for b in bs) - pad
+        y0 = min(b.y for b in bs) - pad - 34
+        x1 = max(b.x + b.w for b in bs) + pad
+        y1 = max(b.y + b.h for b in bs) + pad
+        return (f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" rx="10" fill="{PKG}" '
+                f'stroke="{PKG_LINE}" stroke-width="1.6"/>' + t(x0 + 18, y0 + 28, name, 20, "bold"))
+
+    frames = [
+        frame("ui", [obs, gui, cli, pacer, theme]),
+        frame("controller", [ctl, hist, saved, cmd, sub, edit]),
+        frame("agent", [agent, planner, checker, memory, ims, do, say, story]),
+        frame("persistence", [repo, jrepo]),
+        frame("model", [sess, entry, pstat, event, estat, rel] + parts),
+        frame("agent.tools", [reg, tcall, tool, tres] + tools),
+        frame("llm", [llm, fake, claude, api, exc, req, msg, spec, resp, lcall, lres]),
+    ]
+
+    def A(b, side, f=0.5):
+        return b.anchor(side, f)
+
+    def X(b, f):
+        return b.x + b.w * f
+
+    def Y(b, f):
+        return b.y + b.h * f
+
+    links = []
+    # ui: both views are observers; the GUI owns a pacer and uses the palette; both call the controller
+    lane = obs.x + obs.w + 25
+    links += [
+        poly(A(gui, "l"), (lane, Y(gui, 0.5)), (lane, Y(obs, 0.35)), A(obs, "r", 0.35), kind="real"),
+        poly(A(cli, "l"), (lane, Y(cli, 0.5)), (lane, Y(obs, 0.65)), A(obs, "r", 0.65), kind="real"),
+        poly(A(gui, "r", 0.7), (470, Y(gui, 0.7)), (470, 280), (X(pacer, 0.7), 280), A(pacer, "t", 0.7),
+             kind="comp"),
+        poly(A(gui, "r", 0.9), (490, Y(gui, 0.9)), (490, 295), (X(theme, 0.6), 295), A(theme, "t", 0.6),
+             kind="dep"),
+        poly(A(gui, "r", 0.3), A(ctl, "l", 0.3), mult="1"),
+        poly(A(cli, "r"), (580, Y(cli, 0.5)), (580, Y(ctl, 0.7)), A(ctl, "l", 0.7), mult="1"),
+    ]
+    # controller
+    links += [
+        poly(A(ctl, "b", 0.4), (X(ctl, 0.4), hist.y), kind="comp"),
+        poly(A(hist, "b", 0.4), (X(hist, 0.4), cmd.y), kind="agg", mult="0..*"),
+        poly(A(ctl, "r", 0.8), (840, Y(ctl, 0.8)), (840, Y(saved, 0.5)), A(saved, "l"), kind="dep"),
+        poly(A(sub, "t", 0.5), (X(sub, 0.5), cmd.y + cmd.h), kind="real"),
+        poly(A(edit, "t"), (X(edit, 0.5), 375), (X(cmd, 0.75), 375), A(cmd, "b", 0.75), kind="real"),
+        poly(A(ctl, "r", 0.4), (agent.x, Y(ctl, 0.4)), mult="1"),
+        poly(A(sub, "b", 0.85), (X(sub, 0.85), 480), (1140, 480), (1140, Y(agent, 0.85)), A(agent, "l", 0.85)),
+    ]
+    # agent
+    for b, f in ((planner, 0.25), (checker, 0.5), (memory, 0.75)):
+        links.append(poly(A(agent, "r", f), (1400, Y(agent, f)), (1400, Y(b, 0.5)), A(b, "l"), kind="comp"))
+    links.append(poly(A(agent, "b", 0.6), (X(agent, 0.6), ims.y), mult="3"))
+    bus = do.x - 30
+    for s in (do, say, story):
+        links.append(poly(A(s, "l"), (bus, Y(s, 0.5)), (bus, Y(ims, 0.5)), A(ims, "r"), kind="real"))
+    # every agent class that calls the model holds an LLMClient
+    llm_lane = 1830
+    links.append(poly(A(agent, "t", 0.5), (X(agent, 0.5), 66), (llm_lane + 30, 66), (llm_lane + 30, 560),
+                      (X(llm, 0.3), 560), A(llm, "t", 0.3), mult="1"))
+    for b in (planner, checker, memory):
+        links.append(poly(A(b, "r"), (llm_lane, Y(b, 0.5)), (llm_lane, 575), (X(llm, 0.6), 575), A(llm, "t", 0.6)))
+    links.append(t(X(llm, 0.6) + 14, 612, "PlotPlanner, ConsistencyChecker and MemoryManager also hold one",
+                   12, fill=MUTED, italic=True))
+    # controller to persistence, model and tools
+    links += [
+        poly(A(ctl, "l", 0.9), (610, Y(ctl, 0.9)), (610, 520), (X(repo, 0.6), 520), A(repo, "t", 0.6), mult="1"),
+        poly(A(ctl, "l", 0.95), (600, Y(ctl, 0.95)), (600, 535), (X(sess, 0.45), 535), A(sess, "t", 0.45),
+             label="current", label_at=0.55),
+        poly(A(sub, "b", 0.3), (X(sub, 0.3), 550), (X(sess, 0.65), 550), A(sess, "t", 0.65)),
+        poly(A(edit, "b", 0.4), (X(edit, 0.4), 565), (X(sess, 0.85), 565), A(sess, "t", 0.85)),
+        poly(A(agent, "b", 0.15), (X(agent, 0.15), 585), (X(reg, 0.5), 585), A(reg, "t"), mult="1"),
+    ]
+    # persistence
+    links += [
+        poly(A(jrepo, "t", 0.4), (X(jrepo, 0.4), repo.y + repo.h), kind="real"),
+        poly(A(repo, "r", 0.7), (340, Y(repo, 0.7)), (340, Y(sess, 0.4)), A(sess, "l", 0.4), kind="dep",
+             label="saves / loads", label_at=0.5),
+        poly(A(sess, "l", 0.75), (320, Y(sess, 0.75)), (320, 880), (20, 880), (20, Y(obs, 0.5)), A(obs, "l"),
+             kind="agg", label="notifies 0..* observers", label_at=0.45),
+    ]
+    # model
+    spine = 600
+    for b in parts:
+        links.append(poly(A(sess, "r"), (spine, Y(sess, 0.5)), (spine, Y(b, 0.5)), A(b, "l"), kind="comp"))
+    links += [
+        poly(A(book, "r"), A(entry, "l"), kind="comp", mult="0..*"),
+        poly(A(prop, "r"), (pstat.x, Y(prop, 0.5)), kind="dep"),
+        poly(A(plot, "r"), A(event, "l"), kind="comp", mult="1..*"),
+        poly(A(event, "r"), (estat.x, Y(event, 0.5)), kind="dep"),
+        poly(A(char, "r"), A(rel, "l"), kind="comp", mult="0..*"),
+        poly(A(prop, "r", 0.2), (850, Y(prop, 0.2)), (850, entry.y + entry.h + 14), (X(entry, 0.3), entry.y + entry.h + 14),
+             A(entry, "b", 0.3), kind="dep", label="becomes", label_at=0.2),
+    ]
+    # agent.tools
+    tbus = tools[0].x - 40
+    links += [
+        poly(A(reg, "b", 0.3), (X(reg, 0.3), tcall.y), kind="dep"),
+        poly(A(reg, "r"), (X(reg, 1) + 60, Y(reg, 0.5)), (X(reg, 1) + 60, Y(tool, 0.25)), A(tool, "r", 0.25),
+             kind="agg", mult="1..*"),
+        poly(A(tool, "b", 0.4), (X(tool, 0.4), tres.y), kind="dep", label="returns"),
+        poly(A(tool, "l", 0.6), (1290, Y(tool, 0.6)), (1290, 1150), (X(sess, 0.5), 1150), A(sess, "b"),
+             kind="dep", label="reads / updates", label_at=0.5),
+    ]
+    for b in tools:
+        links.append(poly(A(b, "l"), (tbus, Y(b, 0.5)), (tbus, Y(tool, 0.65)), A(tool, "r", 0.65), kind="real"))
+    # llm
+    rl = llm.x - 25
+    links += [
+        poly(A(fake, "l"), (rl, Y(fake, 0.5)), (rl, Y(llm, 0.6)), A(llm, "l", 0.6), kind="real"),
+        poly(A(claude, "l"), (rl, Y(claude, 0.5)), (rl, Y(llm, 0.6)), A(llm, "l", 0.6), kind="real"),
+        poly(A(claude, "b", 0.5), (X(claude, 0.5), api.y),
+             label="anthropic-java SDK", label_at=0.5),
+        poly(A(llm, "r", 0.3), A(req, "l", 0.3), kind="dep", label="takes"),
+        poly(A(llm, "r", 0.75), (2150, Y(llm, 0.75)), (2150, Y(resp, 0.5)), A(resp, "l"), kind="dep",
+             label="returns", label_at=0.6),
+        poly(A(req, "l", 0.8), (2170, Y(req, 0.8)), (2170, Y(msg, 0.5)), A(msg, "l"), kind="comp"),
+        poly(A(req, "l", 0.8), (2170, Y(req, 0.8)), (2170, Y(spec, 0.5)), A(spec, "l"), kind="comp"),
+        poly(A(resp, "b", 0.5), (X(resp, 0.5), lcall.y), kind="comp"),
+        poly(A(msg, "r"), (lres.x, Y(msg, 0.5)), kind="comp"),
+    ]
+    w = max(b.x + b.w for b in boxes) + 40
+    h = 1200
+    body = frames + links + [b.svg() for b in boxes]
+    body.append(t(30, h - 14, "Every class in the code, by package; members are shown in Figures 2 to 9. "
+                  "Only the main relationships are drawn.", 13, fill=MUTED, family=SANS))
+    return svg_doc(w, h, body, "#ffffff")
+
+
+ALL["01-overview"] = overview
