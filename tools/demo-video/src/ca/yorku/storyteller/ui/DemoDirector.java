@@ -51,8 +51,10 @@ import javax.swing.text.JTextComponent;
 public final class DemoDirector {
 
     /** The virtual screen (1536x864, scaled up to 1080p when recorded). */
-    static final int SCREEN_W = java.awt.Toolkit.getDefaultToolkit().getScreenSize().width;
-    static final int SCREEN_H = java.awt.Toolkit.getDefaultToolkit().getScreenSize().height;
+    static final int SCREEN_W = java.awt.GraphicsEnvironment.isHeadless() ? 1536
+            : java.awt.Toolkit.getDefaultToolkit().getScreenSize().width;
+    static final int SCREEN_H = java.awt.GraphicsEnvironment.isHeadless() ? 864
+            : java.awt.Toolkit.getDefaultToolkit().getScreenSize().height;
 
     private final StoryController controller;
     private final StoryGUI gui;
@@ -285,11 +287,14 @@ public final class DemoDirector {
         clickTab(StoryGUI.PROPOSALS_TAB);
         pause(1500);
         if (onEdt(() -> gui.proposalItems.size()) == 0) {
-            step("No proposal yet, so the next turns name something new.");
-            turn("Story", "Behind the bell tower Mira found a narrow stair down into the tunnels the old miners "
-                    + "called the Hollows.", "Story mode: a new place.");
-            if (onEdt(() -> gui.proposalItems.size()) == 0) {
-                turn("Do", "I follow the tunnel until I find whoever left the chalk marks.", "Do mode.");
+            step("No proposal yet, so the next turns ask the storyteller to name something new.");
+            String[][] asks = {
+                {"Do", "I ask Tomas what the old miners called the tunnels under the bell tower, and who dug them.",
+                    "Do mode: a question only the storyteller can answer."},
+                {"Do", "I search the guild archive for the name of the order that cast the Ash Bell.", "Do mode."},
+                {"Do", "I follow the chalk marks to wherever they lead and read the sign above the door.", "Do mode."}};
+            for (int i = 0; i < asks.length && onEdt(() -> gui.proposalItems.size()) == 0; i++) {
+                turn(asks[i][0], asks[i][1], asks[i][2]);
             }
             clickTab(StoryGUI.PROPOSALS_TAB);
         }
@@ -325,11 +330,14 @@ public final class DemoDirector {
         clickListItem(gui.loreList, e -> e.getTitle().equals("The red night"));
         step("Pinned canon from V1: Ashfall has no moon.");
         pause(4000);
-        turn("Do", "I climb onto the forge roof at midnight and look out over the city.", "A night scene.");
-        if (!lastTurnWarned()) {
-            step("No warning: the narrator kept to the canon. Now the user writes a contradiction.");
+        boolean sent = turn("Story", "That night the full moon rose huge and white over the volcano, and Mira read "
+                + "the ledger by its silver light.", "Story mode: the user writes a full moon into the scene.");
+        for (int attempt = 0; sent && attempt < 2 && !lastTurnWarned(); attempt++) {
+            step("No warning: the narrator steered around the moon. Retry writes the turn again.");
             pause(3500);
-            turn("Story", "Mira watched the full moon rise over the volcano.", "Story mode: a full moon.");
+            click(gui.retry);
+            awaitIdle();
+            finishReveal();
         }
         step(lastTurnWarned()
                 ? "The [Warning: ...] line names the pinned entry. The turn still went through."
@@ -435,12 +443,19 @@ public final class DemoDirector {
         step("End story early: an event is still pending, so it asks first. Answer No.");
         click(gui.endStory);
         expectDialog("Storyteller", "No");
-        PivotalEvent last = nextPending();
-        if (last != null) {
-            step("Story mode: a passage that makes the last turning point happen.");
-            turn("Story", passageFor(last), "Story mode.");
+        JDialog offer = null;
+        for (int attempt = 0; attempt < 3 && offer == null && nextPending() != null; attempt++) {
+            PivotalEvent last = nextPending();
+            step(attempt == 0 ? "Story mode: a passage that makes the last turning point happen."
+                    : "The last turning point has not happened yet, so the user pushes the story there again.");
+            turn(attempt == 0 ? "Story" : "Do", attempt == 0 ? passageFor(last)
+                    : "I stop waiting and make it happen now, in front of everyone: " + passageFor(last),
+                    attempt == 0 ? "Story mode." : "Do mode.");
+            offer = awaitDialog("Storyteller", 5_000);
         }
-        JDialog offer = awaitDialog("Storyteller", 5_000);
+        if (offer == null) {
+            offer = awaitDialog("Storyteller", 3_000);
+        }
         if (offer != null) {
             step("The storyteller suggests ending the story. Yes.");
             pause(3500);
@@ -496,19 +511,31 @@ public final class DemoDirector {
 
     // ------------------------------------------------------------------ story helpers
 
-    private void turn(String mode, String text, String note) {
+    /**
+     * Sends one turn. A model call can fail now and then (the app shows the error and keeps the story as
+     * it was), so a failed turn is sent again, up to twice, and the panel says so.
+     */
+    private boolean turn(String mode, String text, String note) {
         step(note + "  Send.");
-        chooseCombo(gui.modeChoice, mode);
-        type(gui.input, text);
-        pause(700);
-        click(gui.send);
-        if (!awaitIdle()) {
-            return;
+        boolean done = false;
+        for (int attempt = 0; attempt < 3 && !done; attempt++) {
+            if (attempt > 0) {
+                step("The turn was not added, so the same turn is sent again.");
+            }
+            chooseCombo(gui.modeChoice, mode);
+            type(gui.input, text);
+            pause(700);
+            click(gui.send);
+            done = awaitIdle();
+        }
+        if (!done) {
+            return false;
         }
         pause(1500);
         clickAt(center(gui.transcript));
         finishReveal();
         pause(3500);
+        return true;
     }
 
     private boolean lastTurnWarned() {

@@ -14,7 +14,10 @@ They are recording aids, not part of the app, so they live outside `src/` and th
 
 The scripts follow the plan in the "Stage 2 demo video plan" doc. They react to what the model actually
 does (whether it proposed lore, whether the consistency check warned, which pivotal event is next) and
-say so in the panel, so a take never claims something that did not happen.
+say so in the panel, so a take never claims something that did not happen. When a feature does not show
+on the first try (no lore proposal yet, the narrator writing around a contradiction, the last pivotal event
+not reached), the scripts push the story further a few times. A turn that fails with a model error is sent
+again, up to twice, and the panel says so.
 
 ## Run
 

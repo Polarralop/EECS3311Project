@@ -23,7 +23,7 @@ PANEL_W = 400  # FeaturePanel.WIDTH
 
 
 def outer(cp, log):
-    cmd = ["xterm", "-geometry", "122x44+%d+0" % PANEL_W, "-fa", "DejaVu Sans Mono", "-fs", "12",
+    cmd = ["xterm", "-geometry", "108x44+%d+0" % PANEL_W, "-fa", "DejaVu Sans Mono", "-fs", "12",
            "-bg", "#151030", "-fg", "#ECE9FB", "-cr", "#A99BFF", "-bc", "+sb", "-b", "14",
            "-xrm", "XTerm*cursorBlink: true", "-title", "StoryCLI",
            "-e", sys.executable, os.path.abspath(__file__), "inner", cp, log]
@@ -257,17 +257,11 @@ def script(cp, log):
                   "do, say and story are the three input modes (Strategy pattern). The agent looks lore up "
                   "through tools before it writes. Warning lines under a turn are the F08 consistency check.")
     panel.step("do: an action for Ines.")
-    cli.command("do I wade out at low tide toward the archive doors.", pause=0.5)
-    cli.expect(r"\n\[[^\n]*turns[^\n]*\]")
-    cli.idle(3)
+    send_turn(cli, panel, "do I wade out at low tide toward the archive doors.", 3)
     panel.step("say: Ines speaks.")
-    cli.command("say Bram, keep the rope tight.", pause=0.5)
-    cli.expect(r"\n\[[^\n]*turns[^\n]*\]")
-    cli.idle(3)
+    send_turn(cli, panel, "say Bram, keep the rope tight.", 3)
     panel.step("story: the user writes a passage and the storyteller continues it.")
-    cli.command("story The door gave way, and black water rushed out instead of in.", pause=0.5)
-    cli.expect(r"\n\[[^\n]*turns[^\n]*\]")
-    cli.idle(4)
+    send_turn(cli, panel, "story The door gave way, and black water rushed out instead of in.", 4)
 
     panel.feature("F07", "Lore Proposals", "Hybrid",
                   "The agent proposes lasting new facts through a tool (AI); only approve adds them to the lore.")
@@ -275,11 +269,15 @@ def script(cp, log):
     cli.expect(r"No lore proposals waiting\.|Type \"approve <id>\"")
     cli.idle(2)
     ids = re.findall(r"^(P\d+) ", cli.buf[cli.mark - 3000:], re.M)
+    asks = ["do I ask Bram what the drowned archive was called before the sea took it, and which order built it.",
+            "do I read the brass plaque above the door and the name of the founder carved under it.",
+            "do I ask Bram what the old harbour pilots called the sunken lighthouse."]
     if not ids:
-        panel.step("Nothing proposed yet: a turn that names something new.")
-        cli.command("story Inside, Ines found a reading room lit by a lamp that burned without air.", pause=0.5)
-        cli.expect(r"\n\[[^\n]*turns[^\n]*\]")
-        cli.idle(2)
+        panel.step("Nothing proposed yet: turns that ask the storyteller to name something new.")
+    for ask in asks:
+        if ids:
+            break
+        send_turn(cli, panel, ask, 2)
         before = len(cli.buf)
         cli.command("proposals", pause=0.5)
         cli.expect(r"No lore proposals waiting\.|Type \"approve <id>\"")
@@ -369,6 +367,22 @@ def script(cp, log):
     time.sleep(2.5)
     panel.close()
 
+
+
+def send_turn(cli, panel, text, idle=3):
+    """Sends a do/say/story turn and waits for its status line. A model call can fail now and then (the
+    CLI prints the error and keeps the story as it was), so a failed turn is sent again, up to twice."""
+    for attempt in range(3):
+        if attempt:
+            panel.step("The turn was not added, so the same turn is sent again.")
+            cli.idle(2.5)
+        before = len(cli.buf)
+        cli.command(text, pause=0.5)
+        cli.expect(r"\n\[[^\n]*turns[^\n]*\]")
+        cli.idle(idle)
+        if "Error: Claude" not in cli.buf[before:]:
+            return True
+    return False
 
 def inner(cp, log):
     status = 0
