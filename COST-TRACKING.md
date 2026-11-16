@@ -32,4 +32,5 @@ Real API calls the app makes while being developed or recorded. Tests use FakeLL
 
 | Date | Purpose | Input tokens | Output tokens | Cost | Source |
 |---|---|---|---|---|---|
-| 2026-11-16 | Recording the four demo videos (V1 to V4, including re-takes: V2 four times, V3 twice, V4 five times) and a short probe of the consistency check | ~3M | ~250K | ~$8.50 | Estimated: about 90 story turns (each 1 to 3 tool-loop calls of ~8K to 15K input tokens, plus a consistency check and, after turn 8, a summary), 6 scenario drafts and plans, recaps and 4 endings, at $2/1M input and $10/1M output. The app does not log token counts. |
+| 2026-11-04 | Live testing with a real key | ~90K | ~9K | $0.27 | Anthropic Console cost for the project key on Nov 4 (shown by Shane); tokens estimated from the cost. |
+| 2026-11-16 | Recording the four demo videos (V1 to V4, including re-takes: V2 four times, V3 twice, V4 five times) and a short probe of the consistency check | ~1.2M | ~95K | $3.26 | Anthropic Console cost for the project key on Nov 16 (shown by Shane). The Console page used shows cost only, so tokens are estimated from the cost at $2/1M input and $10/1M output. My earlier estimate from turn counts (~3M input, ~$8.50) was about 2.6 times too high. |
