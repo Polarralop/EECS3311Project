@@ -2,12 +2,12 @@
 
 The four Stage 2 demo videos, recorded on 2026-11-16 with `tools/demo-video` (see its README). The app ran unchanged with the real `ClaudeAdapter` and Claude Sonnet 5.5; every story turn, draft, plan, check, recap and ending in them is a live model reply. A panel on the left names the feature on screen, its type and what is happening. There is no voice-over.
 
-| Video | What it shows | Length | File |
+| Video | What it shows | Length | Link |
 |---|---|---|---|
-| V1 | Setting up a story in the GUI | 3:16 | `V1.mp4` |
-| V2 | Playing the story in the GUI | 6:38 | `V2.mp4` |
-| V3 | Memory and the ending in the GUI | 4:13 | `V3.mp4` |
-| V4 | Every feature in the CLI, then the no-key error paths | 6:24 | `V4.mp4` |
+| V1 | Setting up a story in the GUI | 3:16 | [youtu.be/ViJojW-Spyo](https://youtu.be/ViJojW-Spyo) |
+| V2 | Playing the story in the GUI | 6:38 | [youtu.be/jFBY59doGLg](https://youtu.be/jFBY59doGLg) |
+| V3 | Memory and the ending in the GUI | 4:13 | [youtu.be/-9D-Iylat1E](https://youtu.be/-9D-Iylat1E) |
+| V4 | Every feature in the CLI, then the no-key error paths | 6:24 | [youtu.be/WFqlL-TXpoI](https://youtu.be/WFqlL-TXpoI) |
 
 Each video continues the story the one before it saved. Between V2 and V3 the story was played on off camera (`record.sh prep3`) to 10 turns with one pivotal event left, so V3 can show the summary and the suggested ending.
 
