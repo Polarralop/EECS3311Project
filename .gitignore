@@ -49,3 +49,8 @@ saves/
 !.vscode/launch.json
 .idea/
 *.iml
+
+# Demo video recording (tools/demo-video): build output, save folder and recordings
+tools/demo-video/build/
+tools/demo-video/work/
+tools/demo-video/out/
